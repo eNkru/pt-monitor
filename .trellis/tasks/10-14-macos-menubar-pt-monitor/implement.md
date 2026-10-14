@@ -90,3 +90,26 @@ Live NAS checks (AC5–AC8, AC10) need the user's host, port, and credentials.
 
 Control actions, launch at login, per-server intervals, notifications, universal
 binary, signing/notarization. See `prd.md` → Out of Scope and `design.md` §11.
+
+---
+
+## Progress (2026-10-14)
+
+- Steps 1–13 implemented; step 14's automated checks pass.
+- `swift build` clean (0 warnings), `swift run PTMonitor --selftest` = **113
+  checks passed**, `./scripts/build-app.sh` produces an ad-hoc-signed
+  `build/PTMonitor.app`; `--probe` error paths exit non-zero with a readable
+  message and no GUI.
+- Local (non-live) ACs confirmed: **AC1, AC3, AC12, AC14**. App launches as a
+  background agent with no Dock icon/window (AC2 non-visual part).
+- Quality check fixed one High issue: credential-failure backoff
+  (`MonitorStore.retryDelay`, 30 s) to avoid tripping server anti-brute-force
+  bans on a wrong password.
+- **Environment caveat**: the installed Command Line Tools (14.2) is missing
+  `usr/lib/swift/pm/ManifestAPI/PackageDescription.swiftinterface`, which breaks
+  every `swift build`. Workaround + regeneration recipe documented in
+  `.trellis/spec/macos/build-and-run.md`. Permanent fix: reinstall CLT or
+  install Xcode.
+- **Pending user/live verification** (needs the NAS or GUI): AC2 (visual), AC4,
+  AC5–AC8, AC9 (runtime `defaults`/Keychain), AC10, AC11, AC13 happy path,
+  AC15. The task stays `in_progress` until these are confirmed.
