@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>PTMonitor</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.ptmonitor.PTMonitor</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>PTMonitor</string>
+	<key>CFBundleDisplayName</key>
+	<string>PT Monitor</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+
+	<!-- Menu bar agent: no Dock icon, no window at launch (R1). -->
+	<key>LSUIElement</key>
+	<true/>
+
+	<key>LSMinimumSystemVersion</key>
+	<string>12.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+
+	<!-- Required on macOS 15+; harmless on macOS 12. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>PT Monitor connects to your qBittorrent and Transmission servers on the local network to show transfer speeds.</string>
+
+	<!-- Needed for raw-IP LAN URLs on macOS 14+. Deliberately NOT
+	     NSAllowsArbitraryLoads: it is ignored when this key is present. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

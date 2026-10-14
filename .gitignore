@@ -1,0 +1,13 @@
+# Swift Package Manager build output
+.build/
+.swiftpm/
+
+# Assembled app bundle (scripts/build-app.sh)
+build/
+
+# macOS
+.DS_Store
+
+# Xcode artifacts (project is CLT-only; guard against accidental creation)
+*.xcodeproj/
+xcuserdata/
