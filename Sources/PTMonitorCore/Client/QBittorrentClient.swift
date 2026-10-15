@@ -76,11 +76,45 @@ public enum QBittorrentParser {
         case 401:
             return .auth("invalid username or password")
         case 403:
-            return .serverError("the server banned this IP address after repeated failed logins")
+            // `auth/login` is the only endpoint that can be banned: the server
+            // checks the ban before it looks at the credentials
+            // (authcontroller.cpp `loginAction`), so this is the real thing.
+            // The ban lasts `WebUI/BanDuration` (default 3600 s) and is per IP.
+            return .banned(
+                "the WebUI has banned this Mac's IP after too many failed logins — "
+                + "wait for the ban to expire (or restart qBittorrent on the server), "
+                + "then check the user name and password"
+            )
         case 405:
             return .protocolViolation("login endpoint rejected the request method")
         default:
             return .serverError("login failed with HTTP \(statusCode)")
+        }
+    }
+
+    /// Maps a **non-login** endpoint's HTTP status to a failure, or `nil` for a
+    /// success.
+    ///
+    /// A `403` here is deliberately *not* the login ban — `auth/login` is the
+    /// only endpoint that can be banned. qBittorrent answers any private API
+    /// call made without a session with `403` (`webapplication.cpp`:
+    /// `!session() && !isPublicAPI` → `ForbiddenHTTPError`), so a `403` that
+    /// survives a fresh login means the `SID` cookie was not accepted, not that
+    /// the IP was banned.
+    public static func endpointFailure(statusCode: Int, context: String) -> ServerFailure? {
+        switch statusCode {
+        case 200:
+            return nil
+        case 401:
+            return .auth("session rejected; credentials may be wrong")
+        case 403:
+            return .protocolViolation(
+                "\(context): the WebUI rejected an authenticated request (HTTP 403) — the session cookie was not accepted"
+            )
+        case 404:
+            return .protocolViolation("\(context): endpoint not found — is this a qBittorrent WebUI?")
+        default:
+            return .serverError("\(context): HTTP \(statusCode)")
         }
     }
 
@@ -185,15 +219,20 @@ public actor QBittorrentClient: TorrentClient {
 
     // MARK: Requests
 
-    /// GETs an authenticated endpoint. A single `401` triggers one re-login and
-    /// one retry, then the failure propagates — never a login loop.
+    /// GETs an authenticated endpoint. A single `401` **or `403`** triggers one
+    /// re-login and one retry, then the failure propagates — never a login loop.
+    ///
+    /// Both codes mean "this request carried no usable session": qBittorrent
+    /// answers a private API call made without a session with `403`
+    /// (`webapplication.cpp`: `!session() && !isPublicAPI` → `ForbiddenHTTPError`),
+    /// and a stale or host-header-rejected session with `401`.
     private func authorizedGET(path: String, queryItems: [URLQueryItem] = []) async throws -> HTTPResponse {
         var didRetry = false
         while true {
             var request = URLRequest(url: transport.url(path: path, queryItems: queryItems))
             request.httpMethod = "GET"
             let response = try await transport.send(request)
-            if response.statusCode == 401, !didRetry {
+            if (response.statusCode == 401 || response.statusCode == 403), !didRetry {
                 loggedIn = false
                 try await login()
                 didRetry = true
@@ -221,17 +260,8 @@ public actor QBittorrentClient: TorrentClient {
     }
 
     private func checkStatus(_ response: HTTPResponse, context: String) throws {
-        switch response.statusCode {
-        case 200:
-            return
-        case 401:
-            throw ServerFailure.auth("session rejected; credentials may be wrong")
-        case 403:
-            throw ServerFailure.serverError("the server banned this IP address (too many failed logins or an IP/subnet restriction)")
-        case 404:
-            throw ServerFailure.protocolViolation("\(context): endpoint not found — is this a qBittorrent WebUI?")
-        default:
-            throw ServerFailure.serverError("\(context): HTTP \(response.statusCode)")
+        if let failure = QBittorrentParser.endpointFailure(statusCode: response.statusCode, context: context) {
+            throw failure
         }
     }
 

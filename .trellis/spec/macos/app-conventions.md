@@ -40,9 +40,14 @@ enum ServerStatus: Equatable {
 
 enum ServerFailure: Equatable {
     case unreachable(String), auth(String)
+    case banned(String)
     case protocolViolation(String), serverError(String)
 }   // ServerFailure conforms to Error so clients throw it directly
 ```
+
+`banned` means "the server is refusing this client for now" (qBittorrent's IP
+ban, Transmission's lockout / `rpc-whitelist` rejection). It exists as its own
+case because it must back off far harder than anything else.
 
 Rule: parse each API payload **once**, in a pure `…Parser`, into the domain
 model. The UI never re-reads raw JSON fields.
@@ -63,13 +68,32 @@ protocol TorrentClient: Sendable {
 - Wrong credentials return **HTTP 200 with body `Fails.`** → `.auth`. Never
   infer auth failure from a 401 here. `Ok.` is not proof of credentials
   (localhost/subnet bypass).
+- **The `SID` cookie must be carried by the session's own storage.** Do **not**
+  assign a hand-made `HTTPCookieStorage()` to
+  `URLSessionConfiguration.httpCookieStorage`: on macOS 12.7.6 the session then
+  silently stores nothing and never replays the cookie, so every request after
+  login arrives sessionless (see §9). `URLSessionConfiguration.ephemeral`
+  already provides a private per-session store that never leaks to
+  `HTTPCookieStorage.shared` — that is what to rely on.
 - Poll `GET /api/v2/sync/maindata?rid=0` every time (full snapshot; no `rid`
   deltas). Do not use `/transfer/info`.
 - `free_space_on_disk` only when cached `webapiVersion >= 2.1.1`; otherwise
   `nil`. Reject WebAPI `< 2.0` up front.
 - Active = `state ∈ {downloading, metaDL, forcedDL, uploading, forcedUP,
   stalledDL, stalledUP}`; total = count of the `torrents` map.
-- A `401` from a non-login endpoint → re-login once, retry once, then fail.
+- A `401` **or `403`** from a non-login endpoint → re-login once, retry once,
+  then fail. Never loop.
+- **`403` means two completely different things — never conflate them.**
+  - `403` from `auth/login` → `.banned`. The ban is the *only* `AccessDenied`
+    that endpoint can throw (the server checks the ban before the credentials).
+  - `403` from any other endpoint → **not a ban**. `webapplication.cpp` answers
+    *any* private API call made without a session with `403`
+    (`!session() && !isPublicAPI` → `ForbiddenHTTPError`), so this means the
+    session cookie was not accepted → `.protocolViolation`.
+
+  A bug that mapped both to "the server banned this IP" sent a broken cookie
+  jar out as a server ban and cost a long debugging detour. `ServerFailure`
+  cases are asserted separately in `--selftest` to keep them apart.
 
 ### 4.2 Transmission (RPC)
 
@@ -100,11 +124,15 @@ self-signed-trust delegate, Basic auth, and the 409 retry hook.
   others (R6). Disabled servers are never contacted (R3/AC12).
 - Publish only when a status actually changes (ignore `fetchedAt`) to avoid
   menu-bar churn.
-- **Credential-failure backoff is mandatory.** A wrong password normally
-  re-polls every `pollInterval` (2 s), which trips qBittorrent's IP ban and
-  Transmission's anti-brute-force lockout. `MonitorStore.retryDelay` backs off
-  `credentialFailureBackoff = 30 s` on `.auth` and resets on success. Any new
-  failure classification must be considered here.
+- **Credential-failure backoff is mandatory.** qBittorrent bans an IP once
+  `WebUI/MaxAuthenticationFailCount` logins have failed (default **5**) and
+  counts every failed attempt until a login *succeeds* — the counter is **not
+  time-limited** (`authcontroller.cpp::increaseFailedAttempts`), and the ban
+  lasts `WebUI/BanDuration` (default **3600 s**). A 2 s poll timer therefore
+  turns one typo into a one-hour ban. `MonitorStore.retryDelay` spaces retries
+  at `credentialFailureBackoff` (600 s) for `.auth` and `bannedBackoff` (900 s)
+  for `.banned`, never shortening a longer user-configured interval. Editing the
+  server (which calls `reconcile`) or "Refresh Now" retries immediately.
 - Inject the client factory and the sleep so checks never hit the network or
   wait on real time.
 
@@ -116,6 +144,10 @@ self-signed-trust delegate, Basic auth, and the 409 retry hook.
   `kSecClassGenericPassword`, `service = <bundle-id>.server`,
   `account = <server UUID>`). Write only when non-empty; delete on clear or
   server delete. Never place a password in `ServerConfig` or defaults (R4/AC9).
+- **Write the Keychain password before saving the configuration**, and surface a
+  Keychain failure in the editor instead of swallowing it. A server that is
+  enabled while its password never reached the Keychain polls with an empty
+  password, fails every login, and gets the Mac's IP banned.
 
 ## 7. Menu bar (macOS 12 — no `MenuBarExtra`)
 
@@ -145,6 +177,28 @@ self-signed-trust delegate, Basic auth, and the 409 retry hook.
   `@MainActor`; verify with a warning-free `rm -rf .build && swift build`.
 
 ## 9. Wrong vs Correct
+
+#### Wrong — a hand-made cookie storage silently breaks qBittorrent sessions
+
+```swift
+let configuration = URLSessionConfiguration.ephemeral
+// Stores nothing on macOS 12.7.6: login succeeds, the SID is dropped, and every
+// follow-up request arrives sessionless -> qBittorrent answers 403, which reads
+// like "your IP was banned" but is not.
+configuration.httpCookieStorage = HTTPCookieStorage()
+```
+
+#### Correct — let the ephemeral session keep its own private store
+
+```swift
+let configuration = URLSessionConfiguration.ephemeral   // private cookie store
+configuration.httpShouldSetCookies = true
+configuration.httpCookieAcceptPolicy = .always
+```
+
+Verify with a stub WebUI, not by reading the code — the failure is invisible to
+any network-free check (`scripts/fake-qbittorrent.py`, see
+`build-and-run.md` §7).
 
 #### Wrong — control endpoint and password in defaults
 

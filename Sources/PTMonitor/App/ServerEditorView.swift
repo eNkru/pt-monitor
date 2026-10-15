@@ -9,20 +9,21 @@ import SwiftUI
 /// `ServerConfig` (R4).
 struct ServerEditorView: View {
     @StateObject private var model: ServerEditorModel
-    let onSave: (ServerConfig, String) -> Void
+    /// Saves the server. Returns an error message to keep the sheet open, or
+    /// `nil` when the save succeeded and the sheet should close.
+    let onSave: (ServerConfig, String) -> String?
     let onCancel: () -> Void
 
     init(
         existing: ServerConfig?,
         keychain: KeychainStore,
-        onSave: @escaping (ServerConfig, String) -> Void,
+        onSave: @escaping (ServerConfig, String) -> String?,
         onCancel: @escaping () -> Void
     ) {
         _model = StateObject(wrappedValue: ServerEditorModel(existing: existing, keychain: keychain))
         self.onSave = onSave
         self.onCancel = onCancel
     }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(model.isNew ? "Add Server" : "Edit Server")
@@ -72,7 +73,13 @@ struct ServerEditorView: View {
 
     private func save() {
         guard let validated = model.validated() else { return }
-        onSave(validated.config, model.password)
+        if let error = onSave(validated.config, model.password) {
+            // Keep the sheet open so the failure is visible and retryable: a
+            // server whose password never reached the Keychain would otherwise
+            // poll with an empty password and get its IP banned.
+            model.message = error
+            model.messageIsError = true
+        }
     }
 }
 

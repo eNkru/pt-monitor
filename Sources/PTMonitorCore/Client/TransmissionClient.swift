@@ -123,7 +123,9 @@ public actor TransmissionClient: TorrentClient {
         case 401:
             throw ServerFailure.auth("Transmission authentication failed")
         case 403:
-            throw ServerFailure.serverError("this IP is not allowed by rpc-whitelist, or it is temporarily locked out after failed auth attempts")
+            throw ServerFailure.banned(
+                "this IP is not allowed by rpc-whitelist, or it is temporarily locked out after failed auth attempts"
+            )
         case 409:
             throw ServerFailure.serverError("Transmission kept rejecting the RPC session id")
         case 421:

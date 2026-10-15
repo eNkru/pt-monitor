@@ -347,10 +347,36 @@ public enum SelfTest {
         let fails = QBittorrentParser.loginFailure(statusCode: 200, body: "Fails.")
         try expect("qb 200 Fails. -> auth", fails?.kindLabel, "auth failed")
         try expect("qb 200 Ok. -> success", QBittorrentParser.loginFailure(statusCode: 200, body: "Ok.") == nil, true)
+        // Only `auth/login` can be banned: the server checks the ban before it
+        // looks at the credentials.
         try expect(
-            "qb 403 -> server error",
+            "qb login 403 -> banned",
             QBittorrentParser.loginFailure(statusCode: 403, body: "")?.kindLabel,
-            "server error"
+            "banned"
+        )
+        // A 403 outside `auth/login` is NOT a ban: qBittorrent answers any
+        // private API call made without a session with 403
+        // (webapplication.cpp: `!session() && !isPublicAPI`). Conflating the two
+        // once reported a broken session cookie as "the server banned this IP".
+        try expect(
+            "qb non-login 403 -> session problem, not a ban",
+            QBittorrentParser.endpointFailure(statusCode: 403, context: "sync/maindata")?.kindLabel,
+            "unexpected response"
+        )
+        try expect(
+            "qb non-login 401 -> auth",
+            QBittorrentParser.endpointFailure(statusCode: 401, context: "sync/maindata")?.kindLabel,
+            "auth failed"
+        )
+        try expect(
+            "qb non-login 200 -> no failure",
+            QBittorrentParser.endpointFailure(statusCode: 200, context: "sync/maindata") == nil,
+            true
+        )
+        try expect(
+            "qb login 403 and non-login 403 are different causes",
+            QBittorrentParser.loginFailure(statusCode: 403, body: "") == QBittorrentParser.endpointFailure(statusCode: 403, context: "sync/maindata"),
+            false
         )
 
         // --- Transmission: recorded session-stats fixture (research/apis.md §2.2) ---
@@ -552,13 +578,35 @@ public enum SelfTest {
         )
         try expect(
             "retry delay: backoff never shortens a longer interval",
-            MonitorStore.retryDelay(after: .failed(.auth("x")), baseInterval: 45),
-            45
+            MonitorStore.retryDelay(after: .failed(.auth("x")), baseInterval: MonitorStore.bannedBackoff + 60),
+            MonitorStore.bannedBackoff + 60
         )
         try expect(
             "retry delay: server error keeps the interval",
             MonitorStore.retryDelay(after: .failed(.serverError("permission denied")), baseInterval: 2),
             2
+        )
+        try expect(
+            "retry delay: protocol violation keeps the interval",
+            MonitorStore.retryDelay(after: .failed(.protocolViolation("x")), baseInterval: 2),
+            2
+        )
+        try expect(
+            "retry delay: banned backs off hardest",
+            MonitorStore.retryDelay(after: .failed(.banned("banned")), baseInterval: 2),
+            MonitorStore.bannedBackoff
+        )
+        try expect(
+            "retry delay: a ban is spaced further apart than a bad password",
+            MonitorStore.bannedBackoff > MonitorStore.credentialFailureBackoff,
+            true
+        )
+        // The spacing is what keeps the app from tripping qBittorrent's
+        // `WebUI/MaxAuthenticationFailCount` (default 5) ban within seconds.
+        try expect(
+            "retry delay: credential retries are spaced minutes apart",
+            MonitorStore.credentialFailureBackoff >= 600,
+            true
         )
 
         // --- MonitorStore aggregate and worst-state icon ---

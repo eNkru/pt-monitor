@@ -261,25 +261,41 @@ public final class MonitorStore: ObservableObject {
         return active ? .active : .idle
     }
 
-    /// Minimum poll delay after a credential failure. Repeated bad logins trip
-    /// qBittorrent's IP ban and Transmission's anti-brute-force lockout, so a
-    /// short poll timer would turn one wrong password into a persistent outage
-    /// (research/apis.md §1.1, §2.1.1; design §4.2).
-    public static let credentialFailureBackoff: TimeInterval = 30
+    /// Minimum poll delay after credentials were rejected.
+    ///
+    /// qBittorrent bans an IP once `WebUI/MaxAuthenticationFailCount` logins
+    /// have failed (default 5) and counts every failed attempt until a login
+    /// *succeeds* — the counter is not time-limited (authcontroller.cpp
+    /// `increaseFailedAttempts`). A 2 s poll timer therefore turns one typo into
+    /// a one-hour ban. Spacing retries this far apart keeps the app far below
+    /// any server's threshold; editing the server (which calls `reconcile`) or
+    /// the menu's "Refresh Now" retries immediately.
+    public static let credentialFailureBackoff: TimeInterval = 600
+
+    /// Minimum poll delay after the server refused this client outright.
+    ///
+    /// qBittorrent's ban lasts `WebUI/BanDuration` (default 3600 s) and
+    /// Transmission's lockout also expires on its own, so polling faster than
+    /// this gains nothing and only keeps the error alive.
+    public static let bannedBackoff: TimeInterval = 900
 
     /// Delay before the next poll after `status`.
     ///
-    /// A credential failure backs off to `credentialFailureBackoff` (without
-    /// ever shortening a user-configured longer interval); everything else uses
-    /// the base interval.
+    /// Credential failures and server-side bans back off hard (never shortening
+    /// a user-configured longer interval); everything else uses the base
+    /// interval, so transient network trouble recovers quickly.
     nonisolated public static func retryDelay(
         after status: ServerStatus,
         baseInterval: TimeInterval
     ) -> TimeInterval {
-        guard let failure = status.failure, failure.isCredentialFailure else {
+        switch status.failure {
+        case .auth:
+            return max(baseInterval, credentialFailureBackoff)
+        case .banned:
+            return max(baseInterval, bannedBackoff)
+        case .unreachable, .protocolViolation, .serverError, .none:
             return baseInterval
         }
-        return max(baseInterval, credentialFailureBackoff)
     }
 
     /// Maps a thrown error into a publishable status. `nil` means "do not

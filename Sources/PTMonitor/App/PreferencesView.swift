@@ -59,8 +59,11 @@ struct PreferencesView: View {
                 existing: target.config,
                 keychain: keychain,
                 onSave: { config, password in
-                    save(config: config, password: password, isNew: target.config == nil)
-                    editorTarget = nil
+                    let error = save(config: config, password: password, isNew: target.config == nil)
+                    if error == nil {
+                        editorTarget = nil
+                    }
+                    return error
                 },
                 onCancel: { editorTarget = nil }
             )
@@ -69,15 +72,25 @@ struct PreferencesView: View {
 
     // MARK: - Actions
 
-    private func save(config: ServerConfig, password: String, isNew: Bool) {
+    /// Writes the password to the Keychain **before** the configuration, so a
+    /// failed Keychain write cannot leave an enabled server that polls with an
+    /// empty password (which trips qBittorrent's IP ban after a few attempts).
+    ///
+    /// - Returns: an error message to show in the editor, or `nil` on success.
+    private func save(config: ServerConfig, password: String, isNew: Bool) -> String? {
+        do {
+            // The password lives only in the Keychain, never in ServerConfig (R4).
+            try keychain.setPassword(password, for: config.id)
+        } catch {
+            return "Could not save the password to the Keychain (\(error)). Nothing was saved."
+        }
         if isNew {
             settings.add(config)
         } else {
             settings.update(config)
         }
-        // The password lives only in the Keychain, never in ServerConfig (R4).
-        _ = try? keychain.setPassword(password, for: config.id)
         onChange()
+        return nil
     }
 
     private func delete(_ server: ServerConfig) {

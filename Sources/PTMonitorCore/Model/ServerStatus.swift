@@ -7,9 +7,14 @@ public enum ServerFailure: Equatable, Sendable {
     case unreachable(String)
     /// Credentials rejected by the server.
     case auth(String)
+    /// The server is refusing this client for a while: qBittorrent's IP ban
+    /// after repeated failed logins, or Transmission's anti-brute-force lockout
+    /// and `rpc-whitelist` rejection. Retrying soon cannot fix it and makes the
+    /// lockout worse, so this backs off hard (see `MonitorStore.retryDelay`).
+    case banned(String)
     /// Reachable, answered HTTP, but the payload did not match the API.
     case protocolViolation(String)
-    /// The server itself refused: Transmission 403/421, qBittorrent banned IP.
+    /// The server answered, but not in a way any cause explains.
     case serverError(String)
 
     /// The human-readable detail carried by the case.
@@ -17,6 +22,7 @@ public enum ServerFailure: Equatable, Sendable {
         switch self {
         case .unreachable(let message),
              .auth(let message),
+             .banned(let message),
              .protocolViolation(let message),
              .serverError(let message):
             return message
@@ -28,15 +34,10 @@ public enum ServerFailure: Equatable, Sendable {
         switch self {
         case .unreachable: return "unreachable"
         case .auth: return "auth failed"
+        case .banned: return "banned"
         case .protocolViolation: return "unexpected response"
         case .serverError: return "server error"
         }
-    }
-
-    /// True when the failure is credential-related (used to avoid retry storms).
-    public var isCredentialFailure: Bool {
-        if case .auth = self { return true }
-        return false
     }
 }
 

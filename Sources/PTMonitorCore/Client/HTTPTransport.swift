@@ -82,9 +82,18 @@ public final class HTTPTransport: @unchecked Sendable {
         configuration.timeoutIntervalForRequest = 5
         configuration.timeoutIntervalForResource = 15
         configuration.waitsForConnectivity = false
-        // Private cookie storage: qBittorrent's `SID` cookie is scoped to this
-        // server's session and never leaks to `HTTPCookieStorage.shared`.
-        configuration.httpCookieStorage = HTTPCookieStorage()
+        // Cookies must be left to the session's own storage: `ephemeral` already
+        // gives each session a private store that never leaks to
+        // `HTTPCookieStorage.shared` (verified), which is what qBittorrent's
+        // per-server `SID` cookie needs.
+        //
+        // Do NOT assign a hand-made `HTTPCookieStorage()` here. On macOS 12.7.6
+        // (Swift 5.7.2) the session then silently stores nothing and never
+        // replays the cookie, so every request after login arrives sessionless
+        // and qBittorrent answers it with HTTP 403 — which reads like a ban and
+        // is not one. Verified against a stub WebUI: with a fresh storage the
+        // session's cookie list stays empty and the follow-up GET returns 403;
+        // with the ephemeral default the cookie is stored and replayed.
         configuration.httpShouldSetCookies = true
         configuration.httpCookieAcceptPolicy = .always
 

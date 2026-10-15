@@ -113,3 +113,33 @@ binary, signing/notarization. See `prd.md` → Out of Scope and `design.md` §11
 - **Pending user/live verification** (needs the NAS or GUI): AC2 (visual), AC4,
   AC5–AC8, AC9 (runtime `defaults`/Keychain), AC10, AC11, AC13 happy path,
   AC15. The task stays `in_progress` until these are confirmed.
+
+## Live verification round 1 — the "banned IP" false alarm (2026-10-15)
+
+First live qBittorrent configuration reported *"the server banned this IP
+address"*. It was **not a ban** — it was a transport bug, and the message was a
+mislabel. Root cause and fix:
+
+1. `HTTPTransport` assigned a hand-made `HTTPCookieStorage()` to
+   `URLSessionConfiguration.httpCookieStorage`. On macOS 12.7.6 the session then
+   stores nothing and never replays the `SID` cookie, so every request after a
+   successful login arrived sessionless. qBittorrent answers a sessionless
+   private API call with **HTTP 403** (`webapplication.cpp`:
+   `!session() && !isPublicAPI`), and `checkStatus` mapped every 403 to "banned".
+   Fixed by relying on the ephemeral session's own private cookie store.
+   Reproduced and verified against `scripts/fake-qbittorrent.py`.
+2. `403` now means two different things and is no longer conflated: `auth/login`
+   403 → `.banned` (the ban is the only `AccessDenied` that endpoint throws);
+   any other 403 → `.protocolViolation` ("session cookie was not accepted"),
+   and `authorizedGET` retries once on 401 **or** 403.
+3. Added `ServerFailure.banned` with hard backoff (`bannedBackoff` 900 s; the
+   credential backoff went 30 s → 600 s) after confirming from source that
+   qBittorrent counts failed logins until a login *succeeds* (not time-limited)
+   and bans at 5 for 3600 s — so the old 2 s/30 s timers could self-ban the IP.
+4. `PreferencesView` now writes the Keychain password **before** the
+   configuration and surfaces a Keychain failure in the editor instead of
+   swallowing it, so an enabled server can no longer poll with an empty password.
+
+Gates after the fix: clean build (0 warnings), `--selftest` 113 → **121 checks**,
+`./scripts/build-app.sh` green, and the stub round-trip proves login → cookie →
+`maindata` 200 → JSON, plus "auth failed" ×5 then the real `banned` branch.

@@ -119,8 +119,13 @@ whenever the user can run it; do not commit any toolchain artifact to the repo.
   decisions, host parsing, or the probe argv handling must add/extend a
   `--selftest` check with an explicit expected value.
 - Network, Keychain, and GUI behaviour is **not** covered by `--selftest`;
-  cover it with the `--probe` mode against a real server and the manual AC
-  checklist.
+  cover it with the `--probe` mode against a real server (or the stub in §7) and
+  the manual AC checklist.
+- **Any change to `HTTPTransport` needs a run against the stub**, not just a
+  green `--selftest`. Cookie/session behaviour lives entirely inside URLSession
+  and is invisible to network-free checks — that is exactly how the
+  dropped-`SID`-cookie bug reached a user (see §7 and
+  `app-conventions.md` §4.1).
 
 ## 6. Wrong vs Correct
 
@@ -135,3 +140,28 @@ swift test                 # error: XCTest not available (CLT)
 ```bash
 swift run PTMonitor --selftest
 ```
+
+## 7. Verifying the transport without a NAS
+
+`scripts/fake-qbittorrent.py` is a stdlib-only stub that mirrors the real
+WebUI's auth and session behaviour (including the two distinct meanings of
+`403`). Use it whenever the transport changes:
+
+```bash
+python3 scripts/fake-qbittorrent.py 18080 &
+PTMONITOR=build/PTMonitor.app/Contents/MacOS/PTMonitor
+
+# must print a JSON snapshot and exit 0
+$PTMONITOR --probe qbittorrent --host 127.0.0.1 --port 18080 --user admin --pass adminadmin
+
+# must say "auth failed", never "banned"
+$PTMONITOR --probe qbittorrent --host 127.0.0.1 --port 18080 --user admin --pass wrong
+```
+
+Run it a 6th time with the wrong password and it must switch to the `banned`
+message — that is the server's real ban branch (`MaxAuthenticationFailCount` is
+5 by default). The stub's stderr log shows each request, so a sessionless `403`
+is visible as `GET … -> 403 (no session cookie)`.
+
+> **Warning**: the stub is a development tool, not part of the app. It is not
+> shipped in the bundle and `scripts/build-app.sh` ignores it.
