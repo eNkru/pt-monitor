@@ -233,6 +233,18 @@ old CLT 14.2 install. Reinstalled **CLT 16.2 (Swift 6.0.3)** via the
   (styled panel anchored under the item, fresh + live rows), AC18 (read-only,
   click-outside/Esc/re-click dismissal). Live torrent rows need the NAS.
 
+## App icon (2026-10-17)
+
+- `scripts/make-icon.swift` draws the icon with pure CoreGraphics (no Xcode/asset
+  catalog, R10) and feeds `iconutil` to produce `Resources/AppIcon.icns`.
+  Identity: the panel's dark card + hairline border, solid-teal ↓ arrow with a
+  dimmed ↑ arrow, and the teal pill meter at 62% — every icns size is rendered
+  crisp from the vector shape, never downscaled.
+- Wired in: `CFBundleIconFile=AppIcon` in `Resources/Info.plist`; the bundle
+  script copies the icns into `Contents/Resources`. As an `LSUIElement` app
+  it shows only in Finder/Get Info. Geometry/palette verified by pixel
+  sampling (corners transparent, arrows/meter correct); gates re-run green.
+
 ## Live verification round 1 — the "banned IP" false alarm (2026-10-15)
 
 First live qBittorrent configuration reported *"the server banned this IP
