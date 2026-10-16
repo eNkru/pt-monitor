@@ -48,6 +48,7 @@ Sources/PTMonitor/
   App/MenuBuilder.swift
   App/PreferencesView.swift        SwiftUI
   App/ServerEditorView.swift       SwiftUI
+  App/TorrentListView.swift        SwiftUI torrent list, embedded in the dropdown (R12)
 Resources/Info.plist
 scripts/build-app.sh
 ```
@@ -88,6 +89,23 @@ struct TransferSnapshot: Equatable {
     var freeSpace: Int64?         // nil when the server can't report it
     var connectionState: ConnectionState   // connected/firewalled/disconnected/unknown
     var fetchedAt: Date
+    var torrents: [TorrentSummary] = []    // per-torrent summaries for the list window (R12)
+}
+
+/// Normalised per-torrent summary (R12). Both APIs map onto this; nothing above
+/// the client layer knows which API a server speaks.
+enum TorrentState: String, Codable, Equatable, Sendable {
+    case downloading, seeding, stalled, queued, checking, paused, error, other
+}
+
+struct TorrentSummary: Equatable, Sendable {
+    var id: String                // qBittorrent hash / Transmission id as string
+    var name: String
+    var state: TorrentState
+    var progress: Double          // 0…1
+    var downSpeed: Int64          // bytes/s
+    var upSpeed: Int64            // bytes/s
+    var etaSeconds: Int64?        // nil = unknown/infinite (API sentinel values)
 }
 
 enum ServerStatus {
@@ -228,7 +246,8 @@ policy, timeouts, and the Transmission 409 retry live in exactly one place.
 - Rate formatting: `B/s`, `K`, `M`, `G`, one decimal below 100, zero decimals
   above, so the string never grows unbounded.
 
-Menu (rebuilt each time it opens, and on state change):
+The dropdown is the floating panel of §6.2 (Q5 revision, 2026-10-16); the
+`NSMenu` sketch below is the historical record of the first implementation.
 
 ```
 ↓ 2.4M ↑ 680K   ·  7 active
@@ -247,6 +266,121 @@ Quit PT Monitor              ⌘Q
 Error rows show the cause-specific hint text as the row's title. There is no
 "Open Web UI" item: it would need a URL the API does not reliably report, and it
 is not in R1–R11.
+
+### 6.1 Torrent list embedded in the dropdown (R12, added 2026-10-16, revised same day)
+
+No separate window (user revision, Q4): `MenuBuilder` adds one view-based
+`NSMenuItem` whose `view` is an `NSHostingView` wrapping the SwiftUI
+`TorrentListView`. `NSMenu` sizes the item to the view's frame and never resizes
+dynamically, so the view gets a fixed frame (620×320) and the list scrolls
+internally. The dropdown is rebuilt on every open (`menuNeedsUpdate`), so the
+list is always fresh on open; live updates while it stays open rely on the
+menu-tracking run loop servicing SwiftUI redraws (needs live verification —
+worst case the data is simply as-of-open).
+
+- **Placement.** Below the per-server rows and free-space line, above
+  Refresh/Preferences/Quit. Not shown in the empty state (no servers → nothing
+  to list; the empty state keeps "Add Server…").
+- **Data source.** No new store: `MonitorStore.statuses` already publishes
+  `ServerStatus.online(TransferSnapshot)` per server, and `TransferSnapshot`
+  gains `torrents: [TorrentSummary]`. The view reads the store directly.
+- **Layout / native look (revised 2026-10-16 after user feedback that the
+  list looked like a white window).** No `SwiftUI.List` — it paints an opaque
+  background over the menu's vibrancy material. The list is a transparent
+  `ScrollView` + `VStack`, so the menu's own blurred material shows through.
+  Section headers use small-caps semibold secondary text (the style macOS uses
+  for grouped/sidebar headers); rows use the system font, semantic
+  label/secondary colours, monospaced digits for live numbers, and `Divider`
+  separators that pick up the menu's separator colour in light and dark mode.
+  One section per enabled server: a header with the server display name plus
+  its ↓/↑ speeds, then one row per torrent. Row: a small state indicator
+  (SF Symbol + colour), truncated name, `ProgressView` bar, speed text via
+  `ByteRateFormatter`, eta text (`—` when nil).
+- **Ordering.** Fixed sort, no sort UI: downloading first, then seeding, then
+  the rest, each group by down speed desc then name. Sorting stays in
+  `TorrentSummary` as a pure static function so `--selftest` can check it.
+- **Read-only.** No context menus, no buttons, no selection actions (R8).
+  Clicks inside the view do not dismiss the menu; clicking outside does.
+- **Rejected alternative:** the same list in a small `NSWindow` opened by a
+  "Torrents…" item — implemented first, then replaced by the embedded menu
+  item at the user's request. The window version needed explicit activation
+  and was a second surface to manage; the embedded version needed neither.
+  (The embedded-menu mechanism was itself superseded by §6.2's panel; the
+  data source, ordering, read-only rule, and normalisation below carry over.)
+- **Normalisation.**
+  - qBittorrent `state` strings (research §1.3):
+    `downloading`/`metaDL`/`forcedDL` → `downloading`; `stalledDL` → `stalled`;
+    `queuedDL`/`queuedUP` → `queued`; `uploading`/`forcedUP`/`stalledUP` →
+    `seeding`; `pausedDL`/`pausedUP` → `paused`; `checkingDL`/`checkingUP`/
+    `checkingResumeData` → `checking`; `allocating`/`moving`/`unknown` →
+    `other`; `error`/`missingFiles` → `error`.
+  - qBittorrent `eta`: `8640000` (the API's "infinite" sentinel) or negative →
+    `nil`.
+  - Transmission `status` ints (research §2.2): 0 → `paused`; 1/2 →
+    `checking`; 3/5 → `queued`; 4 → `downloading`; 6 → `seeding`; `error != 0`
+    → `error` (overrides the status mapping).
+  - Transmission `eta`: `-1`/`-2` → `nil`; `percentDone` is already 0…1.
+
+### 6.2 CodexBar-style floating panel (Q5 revision, 2026-10-16 — current)
+
+The user pointed at https://codexbar.app and asked for that look. A faithful
+reproduction is impossible inside an `NSMenu` (macOS owns the menu's material,
+corner radius, and item sizing), so the dropdown becomes a custom borderless
+`NSPanel` anchored under the status item. The whole UI is one SwiftUI view;
+the per-server sections, torrent-row content, ordering, and read-only rule of
+§6.1 carry over unchanged.
+
+**Anatomy** (CodexBar's popover mapped onto our data):
+
+| CodexBar element | PT Monitor equivalent |
+| --- | --- |
+| Header: "Codex" / "Updated just now" + account/plan | "PT Monitor" / relative freshness ("Updated 2s ago") + "N servers · M online" |
+| Session/Weekly pill meters | Per-torrent **progress meters** (styling below) |
+| 2-column number grid (label over value) | **↓ speed / ↑ speed / active·total torrents / free space**, aggregated over online servers |
+| 31-day bar chart | none — no history; torrent rows take the space |
+| Credits footer | Per-server sections, then footer action rows |
+
+Per-server section: small-caps header (display name + live ↓/↑ + state), then
+torrent rows — state symbol, truncated name, pill progress meter, live
+speeds, eta (`—` when nil) — in the §6.1 fixed sort. A failed server shows the
+cause-specific hint (R6) as its section note; connecting shows "Connecting…".
+Empty state (no servers): "No servers configured" plus an "Add Server…"
+button that opens Preferences (AC4).
+
+**Styling** (extracted from the site's CSS; adaptive light/dark — dark mode
+matches the mockup):
+
+- Card: ~16 pt corner radius, near-opaque dark gradient in dark mode
+  (`#232326 → #141416` over a `NSVisualEffectView` blur), hairline 8%-white
+  border, large soft shadow; light mode uses the equivalent light materials.
+- Typography: system font, tight tracking, bold values (≥ `semibold`);
+  secondary text at ~60% label opacity; monospaced digits for every live
+  number. State colours/symbols stay as in §6.1.
+- Meters: pill-shaped (`Capsule`), ~3 pt height, track at ~10% fill opacity,
+  fill in the teal accent `#4fb6c3` — same shape as CodexBar's usage meters.
+- Footer action rows: "Refresh Now", "Preferences…", "Quit PT Monitor" as
+  full-width hover-highlighted rows. The ⌘R/⌘Q key equivalents are dropped —
+  a borderless panel has no menu key-equivalent machinery.
+
+**Window mechanics:**
+
+- `NSPanel`, `.nonactivatingPanel`, borderless, `level = .statusBar`,
+  `isOpaque = false`, clear background, `hasShadow = true`,
+  `collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]`. Rounded
+  corners + border live in the SwiftUI content; the window shadow follows the
+  content shape.
+- Positioning: under the status item button frame (converted to screen
+  coordinates); flip above the item if it would run off the screen bottom.
+  Re-clicking the status item toggles the panel.
+- Dismissal: global + local mouse-down monitors (click outside → close) plus
+  Esc. The panel never activates the app, so keyboard focus stays where it
+  was (AC18's behaviour is preserved).
+- Live updates: `@ObservedObject MonitorStore` in a real window redraws on
+  every publish — §6.1's menu-tracking caveat ("worst case rows are
+  as-of-open") is gone.
+- `MenuBuilder.swift` is deleted; its header/aggregate/error-row logic moves
+  into the SwiftUI view. `StatusItemController` drops the `NSMenu` and gets a
+  button target/action that shows the panel.
 
 ## 7. Persistence
 

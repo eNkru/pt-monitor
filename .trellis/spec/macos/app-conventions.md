@@ -13,8 +13,8 @@ checks together.
   except `ByteRateFormatter`'s use of `CoreGraphics`/`NSFont` width measurement.
   Everything here is usable from `--selftest` and `--probe`.
 - `PTMonitor` — a thin executable: argv dispatch in `main.swift`, plus AppKit
-  (`NSStatusItem`, `NSMenu`, `NSApplication`) and SwiftUI views hosted in
-  `NSWindow`/`NSHostingController`.
+  (`NSStatusItem`, the dropdown's borderless `NSPanel`, `NSApplication`) and
+  SwiftUI views hosted in `NSWindow`/`NSHostingView`.
 - `PTMonitorCore/Client` owns all networking; nothing else creates a
   `URLSession`.
 
@@ -49,6 +49,24 @@ enum ServerFailure: Equatable {
 ban, Transmission's lockout / `rpc-whitelist` rejection). It exists as its own
 case because it must back off far harder than anything else.
 
+### Per-torrent summaries (R12)
+
+`TransferSnapshot.torrents: [TorrentSummary]` carries the per-torrent list to
+the UI. The normalisation tables live **only** in the two parsers — one
+owner, asserted in `--selftest` (AC17):
+
+- qBittorrent `state` strings → `TorrentState` (e.g. `stalledUP → .seeding`,
+  `checkingResumeData → .checking`, unknown values → `.other`);
+- Transmission `status` ints → `TorrentState` (0 paused, 1/2 checking, 3/5
+  queued, 4 downloading, 6 seeding), with `error != 0` **overriding** the
+  status mapping;
+- eta sentinels → `nil` (qBittorrent `8640000` or negative; Transmission
+  `-1`/`-2`); the UI renders `nil` as an em dash, never a bogus number;
+- `progress` clamped to 0…1;
+- the fixed display sort is `TorrentSummary.sorted` (downloading → seeding →
+  rest, each by down speed desc then name) — a pure static function so
+  `--selftest` covers it and neither client drifts.
+
 Rule: parse each API payload **once**, in a pure `…Parser`, into the domain
 model. The UI never re-reads raw JSON fields.
 
@@ -79,8 +97,10 @@ protocol TorrentClient: Sendable {
   deltas). Do not use `/transfer/info`.
 - `free_space_on_disk` only when cached `webapiVersion >= 2.1.1`; otherwise
   `nil`. Reject WebAPI `< 2.0` up front.
-- Active = `state ∈ {downloading, metaDL, forcedDL, uploading, forcedUP,
-  stalledDL, stalledUP}`; total = count of the `torrents` map.
+- Active count derives from the normalised states (`.downloading`, `.seeding`,
+  `.stalled`) — exactly the old wire-state set {`downloading`, `metaDL`,
+  `forcedDL`, `uploading`, `forcedUP`, `stalledDL`, `stalledUP`}; total =
+  count of the `torrents` map.
 - A `401` **or `403`** from a non-login endpoint → re-login once, retry once,
   then fail. Never loop.
 - **`403` means two completely different things — never conflate them.**
@@ -149,7 +169,7 @@ self-signed-trust delegate, Basic auth, and the 409 retry hook.
   enabled while its password never reached the Keychain polls with an empty
   password, fails every login, and gets the Mac's IP banned.
 
-## 7. Menu bar (macOS 12 — no `MenuBarExtra`)
+## 7. Menu bar + dropdown panel (macOS 12 — no `MenuBarExtra`)
 
 - `NSStatusItem` with a **template** SF Symbol so it adapts to light/dark/
   highlighted bars: `arrow.down.circle` idle, `arrow.down.circle.fill` active,
@@ -162,10 +182,31 @@ self-signed-trust delegate, Basic auth, and the 409 retry hook.
   returns full → compact → `nil` (icon-only). It must never truncate
   mid-number (R5.2/AC14).
 - `showSpeedsInMenuBar == false` → icon only; the icon still reflects state.
-- The menu is rebuilt on open/state change: aggregate header, per-server rows
-  (cause-specific hint on failure), free-space row, Refresh ⌘R, Preferences ⌘,,
-  Quit ⌘Q. Empty state on first run links to Preferences.
-- **Read-only**: no pause/resume/add/remove. No control endpoints (R8).
+- The dropdown is a **custom borderless `NSPanel`** (`PanelController` /
+  `PanelView`), not an `NSMenu`: a menu cannot render custom chrome (rounded
+  card, gradient, hover-highlighted footer rows) and a real window keeps
+  SwiftUI updating live while open. Panel contract:
+  - `.nonactivatingPanel`, borderless, `level = .statusBar`, `isOpaque =
+    false`, clear background, `hasShadow = true`, `hidesOnDeactivate =
+    false` (the app is `.accessory` and may never be frontmost),
+    `collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]`.
+  - The panel subclass answers `canBecomeKey = true` so it can take Esc via
+    `cancelOperation` **without activating the app** (AC18).
+  - Positioning: under the status item's screen frame, flipped above the item
+    if it would run off the screen bottom; height from the SwiftUI content's
+    fitting size, capped at ~70% of the screen.
+  - Dismissal: global + local mouse-down monitors (click outside), Esc, and
+    re-clicking the status item toggles. The local monitor must **exclude
+    the status item's frame** or the toggle fights the close. Monitors are
+    removed on every `hide()` and in `deinit` (`MainActor.assumeIsolated`
+    under Swift 6).
+  - Content: header + freshness, aggregate 2-column grid, per-server sections
+    (torrent rows with pill progress meters; cause-specific failure hints,
+    R6; empty state with "Add Server…", AC4), footer action rows (Refresh
+    Now / Preferences… / Quit). Key equivalents (⌘R/⌘Q) are dropped — a
+    borderless panel has no menu key-equivalent machinery.
+- **Read-only**: no pause/resume/add/remove. No control endpoints; torrent
+  rows and sections carry no actions (R8, AC18). Only footer rows act.
 
 ## 8. Tests required
 

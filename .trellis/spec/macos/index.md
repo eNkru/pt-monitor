@@ -11,7 +11,7 @@
 | Guide | Description |
 | --- | --- |
 | [Build and Run](./build-and-run.md) | Exact build/verify commands, the CLT manifest-module gotcha and workaround, the `--selftest` contract, bundle assembly |
-| [App Conventions](./app-conventions.md) | Module boundaries, domain-model ownership, API client contracts, polling, persistence, menu bar rules |
+| [App Conventions](./app-conventions.md) | Module boundaries, domain-model ownership, API client contracts, polling, persistence, menu bar + dropdown panel rules |
 
 ---
 

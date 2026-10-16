@@ -71,6 +71,44 @@ Live NAS checks (AC5–AC8, AC10) need the user's host, port, and credentials.
     `Resources/Info.plist` per `design.md` §8. **Verify:** AC1, AC2, AC9.
 14. **Full pass.** Run every automated check, then the live NAS checks with the
     user. Record results per acceptance criterion.
+15. **Torrent list window (R12, added 2026-10-16).**
+    15a. `Model/TorrentSummary.swift`: `TorrentState` + `TorrentSummary` + the
+         fixed-sort static function; `TransferSnapshot` gains
+         `torrents: [TorrentSummary]` (default `[]`).
+    15b. qBittorrent parser: map the `torrents` map it already walks into
+         summaries (state table + eta `8640000`/negative → nil).
+    15c. Transmission parser: parse the `torrent-get` reply it already fetches
+         and currently discards (status ints, `percentDone`, eta `-1`/`-2` →
+         nil, `error != 0` → `error`).
+    15d. `MenuBuilder` embeds `TorrentListView` in a view-based `NSMenuItem`
+         (620×320 `NSHostingView`); no separate window and no "Torrents…" item
+         (user revision Q4: list lives in the dropdown).
+    15e. `SelfTest` additions: state-mapping tables for both clients, eta
+         sentinels, progress clamping, sort order (AC17).
+    **Verify:** `swift build`, `swift run PTMonitor --selftest` green
+    (AC17), then manual: the dropdown embeds the list below the server rows,
+    rows are fresh on open and update while open, clicking outside dismisses
+    (AC16, AC18); live rows need the NAS.
+16. **CodexBar-style floating panel (Q5, 2026-10-16).** Replaces the `NSMenu`
+    dropdown with the panel of design §6.2.
+    16a. `App/PanelController.swift`: borderless `NSPanel` + positioning
+         under the status item, screen-edge flip, global/local click-outside
+         + Esc dismissal, show/toggle from `StatusItemController`'s button
+         action (drop the `NSMenu`, `NSMenuDelegate`, `menuNeedsUpdate`).
+    16b. `App/PanelView.swift`: the whole dropdown as SwiftUI — header
+         ("PT Monitor" + relative freshness + server count), aggregate
+         number grid (↓/↑/active·total/free space), per-server sections
+         (header + torrent rows with pill progress meters) reusing
+         `TorrentListView`'s row logic, footer action rows
+         (Refresh / Preferences / Quit), empty state with "Add Server…".
+         CodexBar styling per design §6.2; absorb `MenuBuilder`'s
+         header/aggregate/error-row logic and delete `MenuBuilder.swift`.
+    16c. `--selftest`: any pure helpers that moved (aggregate/free-space
+         pick) stay covered; no new fixtures needed.
+    **Verify:** `swift build` 0 warnings, `--selftest` green,
+    `./scripts/build-app.sh` green; manual: click status item → styled panel
+    appears anchored under it, click-outside/Esc/re-click dismisses, rows
+    update live while open (AC16/AC18 with Q5 wording).
 
 ## Risk / rollback points
 
@@ -136,6 +174,64 @@ old CLT 14.2 install. Reinstalled **CLT 16.2 (Swift 6.0.3)** via the
   user runs the GUI checks.
 - **Still pending live verification**: AC2 (visual), AC4–AC11, AC13 happy path,
   AC15 — need the user's NAS reachability/credentials and manual GUI checks.
+
+## Torrent list round (R12, 2026-10-16)
+
+- Step 15 implemented: `TorrentSummary` model + both clients' normalisation
+  (qBittorrent `state` strings, Transmission `status` ints, eta sentinels,
+  progress clamping, `error != 0` override), and `--probe` output now includes
+  the normalised `torrents` array (useful for live NAS verification without
+  the GUI).
+- **Presentation revised same day (Q4)**: the list was first built as a
+  separate window opened by a "Torrents…" item; the user asked to embed it in
+  the dropdown instead. It is now a view-based `NSMenuItem` (620×320
+  `NSHostingView` wrapping `TorrentListView`) placed below the server rows;
+  `TorrentListWindowController` and the "Torrents…" item were removed, and
+  the `onTorrents` plumbing reverted.
+- **Presentation revised again same day**: user feedback — the embedded list
+  looked like a white window on the otherwise native menu. Cause:
+  `SwiftUI.List` paints an opaque background over the menu's vibrancy
+  material. Fix: transparent `ScrollView` + `VStack` with native styling
+  (small-caps section headers, system font rows, `Divider` separators,
+  semantic colours, monospaced digits). Design §6.1 Layout bullet records
+  the decision.
+- Gates after the revision: `swift build` 0 warnings, `--selftest` **185
+  checks** (+58 for AC17), `./scripts/build-app.sh` green, probe error path
+  exits 1 with a readable message, and a stub round-trip
+  (`scripts/fake-qbittorrent.py`) shows the full login → maindata →
+  torrents-JSON chain.
+- **Pending live verification**: AC16 (visual: list embedded in the dropdown,
+  fresh on open, updates while open — the menu-tracking run loop servicing
+  SwiftUI redraws is the one uncertain part; worst case rows are as-of-open),
+  AC18 (read-only, click-outside dismisses). Live rows need the NAS.
+
+## CodexBar-style floating panel round (Q5, 2026-10-16)
+
+- Step 16 implemented: the `NSMenu` dropdown is **replaced** by a custom
+  borderless `NSPanel` (`App/PanelController.swift`) hosting one SwiftUI view
+  (`App/PanelView.swift`) — header with relative freshness, aggregate 2-column
+  number grid (↓/↑/active·total/free space), per-server sections with torrent
+  rows and pill progress meters, footer action rows (Refresh / Preferences… /
+  Quit), and the AC4 empty state with "Add Server…". `MenuBuilder.swift` is
+  deleted; its header/aggregate/error-row logic moved into `PanelView`.
+  `StatusItemController` drops the menu and toggles the panel from the button
+  action. Key equivalents (⌘R/⌘Q) are gone — a borderless panel has no menu
+  key-equivalent machinery.
+- Because the panel is a real window, the menu-tracking caveat of the previous
+  round ("worst case rows are as-of-open") is gone: rows redraw on every
+  `MonitorStore` publish while open.
+- 16c: no new fixtures needed — the aggregate helper selftest coverage carried
+  over; the free-space `min()` rule moved verbatim from `MenuBuilder`.
+- Gates: `swift build` 0 warnings, `--selftest` **185 checks**,
+  `./scripts/build-app.sh` green (ad-hoc signed), probe error path exit 1 with
+  a readable message. `trellis-check` pass: no High/Medium findings; only
+  stale "list window" doc comments (Q4 wording surviving into the Q5 round)
+  were fixed in `TorrentSummary`/`TransferSnapshot`/both clients.
+- Spec updated: `.trellis/spec/macos/app-conventions.md` §2/§3/§4.1/§7 now
+  describe the panel contract and the per-torrent normalisation owner.
+- **Pending live verification** (manual, needs GUI): AC2 visual, AC4, AC16
+  (styled panel anchored under the item, fresh + live rows), AC18 (read-only,
+  click-outside/Esc/re-click dismissal). Live torrent rows need the NAS.
 
 ## Live verification round 1 — the "banned IP" false alarm (2026-10-15)
 

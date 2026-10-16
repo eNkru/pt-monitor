@@ -71,6 +71,12 @@ not control.
 - **R11 — Headless probe mode.** The binary supports a non-GUI probe of a single
   server that prints the fetched snapshot as JSON, so the API clients can be
   verified against a real NAS without the GUI.
+- **R12 — Torrent list in the dropdown (added 2026-10-16, revised same day).**
+  The dropdown embeds the torrent list of every enabled server, grouped per
+  server. Each row shows: name, normalised state, progress, and live ↓/↑
+  speed. The list updates with the poll cadence and is strictly read-only
+  (R8). No separate window is opened (user revision, 2026-10-16: "embedded that
+  list window just in dropdown? not open a new window").
 
 ## Acceptance Criteria
 
@@ -117,6 +123,19 @@ Verified on the dev machine (macOS 12.7.6) unless the criterion names the NAS.
   formatter shows that an over-wide speed string shortens to the compact form
   and then to nil rather than being truncated mid-number. (R5.2)
 - **AC15** Quit from the dropdown terminates the process cleanly. (R1)
+- **AC16** With at least one server configured, the panel (Q5: the dropdown is
+  a custom floating panel, no longer an `NSMenu`) embeds the torrent list;
+  each enabled online server appears as a section with one row per torrent
+  (name, state, progress, ↓/↑ speed); offline or failed servers show a
+  per-server note instead of rows; the panel is fresh on every open and rows
+  update live while it stays open. (R12, Q5)
+- **AC17** `--selftest` covers the torrent-list normalisation: qBittorrent
+  `state` strings and Transmission `status` integers map to the normalised
+  `TorrentState`, progress is in 0…1, and the eta sentinels (qBittorrent
+  `8640000`, Transmission `-1`/`-2`) render as unknown rather than a bogus
+  number. (R12)
+- **AC18** The embedded list has no control actions (R8); clicking outside the
+  dropdown dismisses it and the status item keeps working. (R1, R12)
 
 ## Out of Scope
 
@@ -126,8 +145,9 @@ Verified on the dev machine (macOS 12.7.6) unless the criterion names the NAS.
   without restructuring.
 - Launch at login. Not requested; needs a LaunchAgent on macOS 12.
 - Per-server poll intervals (one global interval for now).
-- Notifications, Dock menu, multiple windows, torrent detail views, torrent
-  search/indexers.
+- Notifications, Dock menu, torrent detail views (a per-torrent drill-down with
+  files/trackers/peers — the list window of R12 is a summary, not a detail
+  view), torrent search/indexers.
 - Localization (English only), Mac App Store distribution, sandboxing,
   notarization, notarized/universal binaries, Windows/Linux builds.
 - qBittorrent's `rid`-based delta sync (full snapshot per poll, by design — see
@@ -139,6 +159,21 @@ Verified on the dev machine (macOS 12.7.6) unless the criterion names the NAS.
   speed text. (→ R5.1)
 - **Q2 — Scope.** User chose: read-only monitoring first, control added later.
   (→ R8, Out of Scope)
+- **Q3 — Torrent list presentation (2026-10-16).** User chose option B: a
+  SwiftUI list, not richer NSMenu rows. (→ R12)
+- **Q4 — Torrent list placement (2026-10-16, revision).** After seeing option B
+  as a separate window, the user asked to embed the list directly in the
+  dropdown instead of opening a window. Implemented as a view-based
+  `NSMenuItem` hosting the same SwiftUI list. (→ R12, AC16)
+- **Q5 — Dropdown presentation (2026-10-16).** User wants the CodexBar look
+  (https://codexbar.app): the NSMenu dropdown is replaced by a custom floating
+  panel (borderless `NSPanel` anchored under the status item) styled like
+  CodexBar's popover — header with "Updated just now", aggregate number grid
+  (↓/↑ speeds, active torrents, free space), per-server sections with torrent
+  rows and pill progress meters, and footer action rows (Refresh /
+  Preferences / Quit). Adaptive light/dark; dark mode matches the mockup.
+  This supersedes Q4's `NSMenuItem` embedding mechanism (same data, same
+  placement in the app, new chrome). (→ R12, AC16, AC18)
 
 ## Technical Notes
 
