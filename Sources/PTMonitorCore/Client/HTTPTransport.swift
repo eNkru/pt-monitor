@@ -154,6 +154,8 @@ public final class HTTPTransport: @unchecked Sendable {
             return "TLS handshake failed (enable \"allow self-signed certificate\" if the server uses one)"
         case .cancelled:
             return "request cancelled"
+        case .appTransportSecurityRequiresSecureConnection:
+            return "blocked by App Transport Security: plain HTTP is only allowed to local-network addresses (e.g. 192.168.x.x, .local names); use a LAN address or enable HTTPS on the server"
         default:
             return error.localizedDescription
         }

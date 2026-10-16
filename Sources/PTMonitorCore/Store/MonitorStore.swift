@@ -270,14 +270,14 @@ public final class MonitorStore: ObservableObject {
     /// a one-hour ban. Spacing retries this far apart keeps the app far below
     /// any server's threshold; editing the server (which calls `reconcile`) or
     /// the menu's "Refresh Now" retries immediately.
-    public static let credentialFailureBackoff: TimeInterval = 600
+    public nonisolated static let credentialFailureBackoff: TimeInterval = 600
 
     /// Minimum poll delay after the server refused this client outright.
     ///
     /// qBittorrent's ban lasts `WebUI/BanDuration` (default 3600 s) and
     /// Transmission's lockout also expires on its own, so polling faster than
     /// this gains nothing and only keeps the error alive.
-    public static let bannedBackoff: TimeInterval = 900
+    public nonisolated static let bannedBackoff: TimeInterval = 900
 
     /// Delay before the next poll after `status`.
     ///
@@ -339,7 +339,7 @@ public final class MonitorStore: ObservableObject {
     }
 
     /// Default poll delay. Overridable so checks run without waiting.
-    public static let defaultSleep: @Sendable (TimeInterval) async throws -> Void = { seconds in
+    public nonisolated static let defaultSleep: @Sendable (TimeInterval) async throws -> Void = { seconds in
         let nanoseconds = UInt64(max(0, seconds) * 1_000_000_000)
         try await Task.sleep(nanoseconds: nanoseconds)
     }

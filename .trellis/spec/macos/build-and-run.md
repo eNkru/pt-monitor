@@ -52,66 +52,70 @@ checks live in `Sources/PTMonitorCore/Diagnose/SelfTest.swift` and run via
 | `CFBundleIdentifier` | `com.ptmonitor.PTMonitor` | must match `KeychainStore`'s service prefix |
 | `CFBundle{Executable,Name,PackageType,ShortVersionString,Version}` | — | hand-assembled bundle plumbing |
 
-## 4. Gotcha: missing `PackageDescription.swiftinterface` under CLT
+## 4. Toolchain history and current state
 
-> **Warning**: A Command Line Tools 14.2 install missing
-> `usr/lib/swift/pm/ManifestAPI/PackageDescription.swiftinterface` makes every
-> `swift build` fail with:
->
-> ```
-> Package.swift:2:8: error: no such module 'PackageDescription'
-> ```
+### 4.1 Current (2026-10-16): macOS 14.8.9 + CLT 16.2
 
-On Darwin SwiftPM ships the manifest module as a **`.swiftinterface`** (plus
-`.swiftdoc`), not a binary `.swiftmodule` (see SwiftPM's
-`Sources/PackageDescription/CMakeLists.txt`). The interface file was absent from
-this machine's CLT install, and `/Library/Developer/CommandLineTools/...` is not
-writable without `sudo`.
-
-### Workaround (already installed)
-
-A locally rebuilt interface is kept outside the system toolchain and selected
-with SwiftPM's `SWIFTPM_CUSTOM_LIBS_DIR` (its `ManifestAPI/` child replaces
-`<toolchain>/usr/lib/swift/pm/ManifestAPI`):
-
-```
-~/.ptmon-toolchain/pm/ManifestAPI/
-  PackageDescription.swiftinterface
-  PackageDescription.swiftdoc
-  PackageDescription.swiftmodule
-  libPackageDescription.dylib        # the original CLT dylib (ABI source of truth)
-
-export SWIFTPM_CUSTOM_LIBS_DIR="$HOME/.ptmon-toolchain/pm"
-```
-
-A shim at `~/.local/bin/swift` (earlier in `PATH` than `/usr/bin`) sets that
-variable only while the system file is missing, then `exec`s `/usr/bin/swift`.
-It becomes a no-op the moment the system install is repaired.
-
-### Regenerating the interface
-
-If the CLT/toolchain changes, rebuild from the matching SwiftPM tag with the
-exact CMake recipe. `PackageDescription/ContextModel.swift` is a symlink into
-`Sources/PackageLoading/ContextModel.swift`, so extract both:
+The machine was upgraded from macOS 12.7.6 to **macOS 14.8.9 (Sonoma)**, which
+wiped the old CLT 14.2 install. Reinstalled **Command Line Tools 16.2**
+(Swift 6.0.3) non-interactively:
 
 ```bash
-TAG=swift-5.7.2-RELEASE
-curl -sL "https://github.com/apple/swift-package-manager/archive/refs/tags/$TAG.tar.gz" -o spm.tgz
-tar -xzf spm.tgz "swift-package-manager-$TAG/Sources/PackageDescription" \
-                 "swift-package-manager-$TAG/Sources/PackageLoading/ContextModel.swift"
-PD=swift-package-manager-$TAG/Sources/PackageDescription
-swiftc -module-name PackageDescription \
-  -package-description-version 999.0 -enable-library-evolution \
-  -emit-module-interface-path PackageDescription.swiftinterface \
-  -emit-module-path PackageDescription.swiftmodule \
-  -target x86_64-apple-macosx10.15 -swift-version 5 "$PD"/*.swift
+touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+softwareupdate --list                      # shows "Command Line Tools for Xcode-16.2"
+softwareupdate --install "Command Line Tools for Xcode-16.2"
 ```
 
-### Permanent fix
+With CLT 16.2 the §4.2 workaround is obsolete and **the shim at
+`~/.local/bin/swift` was removed** (renamed to `swift.disabled-ptmon-shim`).
+Leaving it in place silently injects the stale 14.2-era overlay from
+`~/.ptmon-toolchain` and breaks every build with:
 
-Reinstalling Command Line Tools (`xcode-select --install`) or installing Xcode
-restores the file and makes the shim/overlay unnecessary. Prefer the system fix
-whenever the user can run it; do not commit any toolchain artifact to the repo.
+```
+error: serialized JSON uses unsupported version 1, indicating use of a
+mismatched PackageDescription library ...
+```
+
+If that error ever reappears, check `which swift` for shims before anything
+else. Swift 6.0.3 also emits concurrency warnings the 5.7 toolchain did not:
+`static let` constants on `@MainActor` classes must be declared
+`public nonisolated static let` (see `MonitorStore`) — the build contract is
+still **0 warnings**.
+
+### 4.2 Historical: CLT 14.2 missing `PackageDescription.swiftinterface`
+
+> Superseded by §4.1; kept because the machine may meet another half-installed
+> CLT. A CLT install missing
+> `usr/lib/swift/pm/ManifestAPI/PackageDescription.swiftinterface` makes every
+> `swift build` fail with `no such module 'PackageDescription'`. Darwin SwiftPM
+> ships the manifest module as a `.swiftinterface`, not a binary
+> `.swiftmodule`.
+
+The workaround was a locally rebuilt interface at `~/.ptmon-toolchain/pm`
+selected via `SWIFTPM_CUSTOM_LIBS_DIR`, set by a PATH shim at
+`~/.local/bin/swift`. If it is ever needed again, regenerate the interface from
+the matching SwiftPM tag (`swift-5.7.2-RELEASE`) with
+`-package-description-version 999.0 -enable-library-evolution
+-emit-module-interface-path` (full CMake-derived recipe was: extract
+`Sources/PackageDescription` + the `ContextModel.swift` symlink target from the
+SwiftPM tarball, compile all of `PackageDescription/*.swift`). Do not commit any
+toolchain artifact to the repo.
+
+### 4.3 ATS on macOS 14 (verified empirically, 2026-10-16)
+
+`NSAllowsLocalNetworking=YES` (already in `Info.plist`) permits plain HTTP to
+loopback and RFC1918 LAN addresses on macOS 14 — the NAS case works untouched.
+It does **not** permit public-range IPs or public-style FQDNs; those fail with
+`URLError.appTransportSecurityRequiresSecureConnection`, which
+`HTTPTransport.describe` maps to a hint pointing at LAN addresses or HTTPS.
+Verified matrix:
+
+| Address | Result |
+| --- | --- |
+| `127.0.0.1` | reaches network (connection refused) |
+| `192.168.x.x` | reaches network (timeout) |
+| `203.0.113.99` (public-range IP) | ATS block |
+| public FQDN + `http://` | ATS block |
 
 ## 5. Tests required
 

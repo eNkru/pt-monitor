@@ -41,6 +41,7 @@ public enum SelfTest {
             try formatterChecks(&passed)
             try clientChecks(&passed)
             try storeChecks(&passed)
+            try transportChecks(&passed)
             try validationChecks(&passed)
             try probeChecks(&passed)
         } catch let failure as Failure {
@@ -106,6 +107,28 @@ public enum SelfTest {
         try expect("bytes(999)", ByteRateFormatter.bytes(999), "999 B")
         try expect("bytes(412.5 GB)", ByteRateFormatter.bytes(442_918_502_400), "412 GB")
         try expect("bytes(1.00 KB)", ByteRateFormatter.bytes(1024), "1.00 KB")
+    }
+
+    // MARK: - Transport error description (R6)
+
+    /// `HTTPTransport.describe` turns `URLError` codes into cause-specific,
+    /// actionable text; the ATS case matters on macOS 14+ where plain HTTP to
+    /// non-LAN addresses is blocked.
+    private static func transportChecks(_ passed: inout Int) throws {
+        func expect(_ name: String, _ actual: String, contains expected: String) throws {
+            guard actual.contains(expected) else {
+                throw Failure(message: "\(name): expected message containing \"\(expected)\", got \"\(actual)\"")
+            }
+            passed += 1
+        }
+
+        let ats = URLError(.appTransportSecurityRequiresSecureConnection)
+        try expect("transport: ATS block", HTTPTransport.describe(ats), contains: "App Transport Security")
+        try expect("transport: ATS hint names LAN", HTTPTransport.describe(ats), contains: "192.168")
+        try expect("transport: timeout", HTTPTransport.describe(URLError(.timedOut)), contains: "timed out")
+        try expect("transport: DNS", HTTPTransport.describe(URLError(.cannotFindHost)), contains: "host not found")
+        try expect("transport: refused", HTTPTransport.describe(URLError(.cannotConnectToHost)), contains: "connection refused")
+        try expect("transport: TLS", HTTPTransport.describe(URLError(.serverCertificateUntrusted)), contains: "self-signed")
     }
 
     // MARK: - Config validation / host parsing (step 12)

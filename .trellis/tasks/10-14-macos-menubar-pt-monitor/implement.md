@@ -114,6 +114,29 @@ binary, signing/notarization. See `prd.md` → Out of Scope and `design.md` §11
   AC5–AC8, AC9 (runtime `defaults`/Keychain), AC10, AC11, AC13 happy path,
   AC15. The task stays `in_progress` until these are confirmed.
 
+## Environment restoration + macOS 14 round (2026-10-16)
+
+The dev machine was upgraded macOS 12.7.6 → **14.8.9 (Sonoma)**, which wiped the
+old CLT 14.2 install. Reinstalled **CLT 16.2 (Swift 6.0.3)** via the
+`softwareupdate` in-progress trick; removed the now-obsolete
+`~/.local/bin/swift` shim (its stale 14.2 overlay caused
+`mismatched PackageDescription` on every build). Details recorded in
+`.trellis/spec/macos/build-and-run.md` §4.
+
+- `swift build` clean (**0 warnings**; three `static let` on `@MainActor`
+  constants needed `nonisolated` under Swift 6.0.3), `--selftest` **127 checks**
+  (was 121), `./scripts/build-app.sh` green, ad-hoc signature valid.
+- **macOS 14 ATS verified empirically**: with `NSAllowsLocalNetworking=YES`,
+  loopback and RFC1918 LAN IPs work untouched (the NAS case); public-range IPs
+  and public FQDNs over plain HTTP are blocked. `HTTPTransport.describe` now
+  maps that block to a cause-specific hint (LAN address or HTTPS) — R6 polish —
+  with 6 new selftest checks. Stub round-trip re-run after the transport edit:
+  happy path + `auth failed` both correct, no sessionless 403.
+- App launches on macOS 14 (agent, no Dock icon) — re-confirmed below when the
+  user runs the GUI checks.
+- **Still pending live verification**: AC2 (visual), AC4–AC11, AC13 happy path,
+  AC15 — need the user's NAS reachability/credentials and manual GUI checks.
+
 ## Live verification round 1 — the "banned IP" false alarm (2026-10-15)
 
 First live qBittorrent configuration reported *"the server banned this IP
