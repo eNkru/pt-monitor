@@ -2,15 +2,19 @@ import AppKit
 import Combine
 import PTMonitorCore
 
-/// Owns the single `NSStatusItem` and its dropdown (design §6).
+/// Owns the single `NSStatusItem` (design §6).
 ///
 /// The item shows a template SF Symbol that reflects the worst state among the
 /// enabled servers, plus the aggregated speed text. The text is rendered with a
 /// monospaced-digit font so it does not jitter, and degrades full → compact →
 /// icon-only rather than being truncated mid-number (R5.2). It can be hidden by
 /// preference with the icon still reflecting state (R5.3).
+///
+/// Clicking the item toggles the CodexBar-style floating panel
+/// (`PanelController`, design §6.2). There is no `NSMenu`: a menu cannot render
+/// the rounded card, and the panel keeps SwiftUI redrawing live while open.
 @MainActor
-final class StatusItemController: NSObject, NSMenuDelegate {
+final class StatusItemController: NSObject {
 
     /// Monospaced digits: `1` and `8` are the same width, so the status item
     /// does not twitch as speeds change.
@@ -24,7 +28,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let settings: SettingsStore
     private let monitor: MonitorStore
-    private let menuBuilder: MenuBuilder
+    private let panelController: PanelController
 
     private var cancellables = Set<AnyCancellable>()
     private var lastRenderKey: String?
@@ -32,30 +36,28 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     init(settings: SettingsStore, monitor: MonitorStore, onPreferences: @escaping () -> Void) {
         self.settings = settings
         self.monitor = monitor
-        self.menuBuilder = MenuBuilder(settings: settings, monitor: monitor, onPreferences: onPreferences)
-        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        self.statusItem = statusItem
+        guard let button = statusItem.button else {
+            preconditionFailure("NSStatusBar returned a status item without a button")
+        }
+        self.panelController = PanelController(settings: settings, monitor: monitor, button: button, onPreferences: onPreferences)
         super.init()
 
-        let menu = NSMenu()
-        menu.delegate = self
-        // Keep informational rows at full contrast; action items are enabled
-        // explicitly in `MenuBuilder`.
-        menu.autoenablesItems = false
-        statusItem.menu = menu
-
-        statusItem.button?.imagePosition = .imageLeft
-        statusItem.button?.imageScaling = .scaleProportionallyDown
+        button.target = self
+        button.action = #selector(togglePanel(_:))
+        button.cell?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        button.imagePosition = .imageLeft
+        button.imageScaling = .scaleProportionallyDown
 
         observe()
         refresh()
     }
 
-    // MARK: - Menu
+    // MARK: - Panel toggling
 
-    /// The dropdown is rebuilt on every open, so it always reflects the latest
-    /// statuses without the item churning while closed.
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        menuBuilder.populate(menu)
+    @objc private func togglePanel(_ sender: Any?) {
+        panelController.toggle()
     }
 
     // MARK: - Observation
