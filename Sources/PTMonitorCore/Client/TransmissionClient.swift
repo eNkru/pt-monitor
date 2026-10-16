@@ -42,6 +42,56 @@ public enum TransmissionParser {
     public static func freeSpace(fromArguments arguments: [String: Any]) -> Int64? {
         JSON.int64(arguments["size-bytes"])
     }
+
+    /// Maps a Transmission `status` integer onto the normalised `TorrentState`
+    /// (design §6.1, research/apis.md §2.2): 0 stopped, 1/2 verifying,
+    /// 3/5 queued, 4 downloading, 6 seeding.
+    public static func state(status: Int?) -> TorrentState {
+        switch status {
+        case 0: return .paused
+        case 1, 2: return .checking
+        case 3, 5: return .queued
+        case 4: return .downloading
+        case 6: return .seeding
+        default: return .other
+        }
+    }
+
+    /// Normalises Transmission's eta: `-1` (unknown) and `-2` (unavailable)
+    /// are sentinels, not seconds (design §6.1).
+    public static func etaSeconds(_ value: Any?) -> Int64? {
+        guard let seconds = JSON.int64(value) else { return nil }
+        if seconds < 0 { return nil }
+        return seconds
+    }
+
+    /// Maps the `torrents` array of a `torrent-get` reply (objects format)
+    /// onto normalised summaries (R12, design §6.1). `error != 0` overrides the
+    /// status mapping. Pure, so `--selftest` can call it directly (AC17).
+    public static func summaries(fromTorrents torrents: [Any]) -> [TorrentSummary] {
+        var result: [TorrentSummary] = []
+        result.reserveCapacity(torrents.count)
+        for value in torrents {
+            guard let entry = value as? [String: Any] else { continue }
+            let mappedState: TorrentState
+            if let error = JSON.int(entry["error"]), error != 0 {
+                mappedState = .error
+            } else {
+                mappedState = state(status: JSON.int(entry["status"]))
+            }
+            let id = JSON.string(entry["id"]) ?? "\(JSON.int64(entry["id"]) ?? -1)"
+            result.append(TorrentSummary(
+                id: id,
+                name: JSON.string(entry["name"]) ?? id,
+                state: mappedState,
+                progress: TorrentSummary.clampedProgress((entry["percentDone"] as? NSNumber)?.doubleValue),
+                downSpeed: JSON.int64(entry["rateDownload"]) ?? 0,
+                upSpeed: JSON.int64(entry["rateUpload"]) ?? 0,
+                etaSeconds: etaSeconds(entry["eta"])
+            ))
+        }
+        return result
+    }
 }
 
 // MARK: - Client
@@ -74,9 +124,12 @@ public actor TransmissionClient: TorrentClient {
         let stats = try await rpc("session-stats")
         var snapshot = TransmissionParser.snapshot(fromSessionStats: stats)
 
-        // Required by the old protocol; the per-torrent list is consumed by the
-        // dropdown in a later step (implement.md step 11).
-        _ = try await rpc("torrent-get", arguments: ["fields": TransmissionParser.torrentFields])
+        // `fields` is required by the old protocol; the per-torrent list feeds
+        // the dropdown torrent list (R12, design §6.2).
+        let torrentArguments = try await rpc("torrent-get", arguments: ["fields": TransmissionParser.torrentFields])
+        if let list = torrentArguments["torrents"] as? [Any] {
+            snapshot.torrents = TorrentSummary.sorted(TransmissionParser.summaries(fromTorrents: list))
+        }
 
         if let freeSpace = await freeSpaceIfDue() {
             snapshot.freeSpace = freeSpace

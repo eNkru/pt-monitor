@@ -201,6 +201,17 @@ public enum ProbeRunner {
             "totalTorrents": snapshot.totalTorrents,
             "freeSpace": snapshot.freeSpace.map { $0 as Any } ?? NSNull(),
             "connectionState": snapshot.connectionState.rawValue,
+            "torrents": snapshot.torrents.map { torrent in
+                [
+                    "id": torrent.id,
+                    "name": torrent.name,
+                    "state": torrent.state.rawValue,
+                    "progress": torrent.progress,
+                    "downSpeed": torrent.downSpeed,
+                    "upSpeed": torrent.upSpeed,
+                    "etaSeconds": torrent.etaSeconds.map { $0 as Any } ?? NSNull()
+                ] as [String: Any]
+            },
             "fetchedAt": ISO8601DateFormatter().string(from: snapshot.fetchedAt)
         ]
         let serverObject: [String: Any] = [

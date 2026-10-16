@@ -496,6 +496,110 @@ public enum SelfTest {
             SessionIdHandshake.step(statusCode: 200, sessionIdHeader: nil, hasRetried: false).shouldRetry,
             false
         )
+
+        // --- Torrent list normalisation (R12, AC17) ---
+        // qBittorrent `state` strings (research/apis.md §1.3, design §6.1).
+        let qbStateTable: [(String, TorrentState)] = [
+            ("downloading", .downloading), ("metaDL", .downloading), ("forcedDL", .downloading),
+            ("stalledDL", .stalled),
+            ("queuedDL", .queued), ("queuedUP", .queued),
+            ("uploading", .seeding), ("forcedUP", .seeding), ("stalledUP", .seeding),
+            ("pausedDL", .paused), ("pausedUP", .paused),
+            ("checkingDL", .checking), ("checkingUP", .checking), ("checkingResumeData", .checking),
+            ("allocating", .other), ("moving", .other), ("unknown", .other),
+            ("error", .error), ("missingFiles", .error),
+            ("somethingNewInAVfutureVersion", .other)
+        ]
+        for (raw, expected) in qbStateTable {
+            try expect("qb state \(raw)", QBittorrentParser.state(raw), expected)
+        }
+
+        // qBittorrent eta: `8640000` is the "infinite" sentinel, negatives are
+        // unknown (design §6.1).
+        try expectOptional("qb eta infinite sentinel", QBittorrentParser.etaSeconds(8_640_000), nil)
+        try expectOptional("qb eta negative", QBittorrentParser.etaSeconds(-1), nil)
+        try expectOptional("qb eta absent", QBittorrentParser.etaSeconds(nil), nil)
+        try expectOptional("qb eta valid", QBittorrentParser.etaSeconds(3600), 3600)
+
+        // qBittorrent summaries: name fallback to the hash, speeds, clamped
+        // progress, and the fixed sort in `TransferSnapshot.torrents`.
+        let qbTorrents: [String: Any] = [
+            "aaaa000000000000000000000000000000000000": [
+                "name": "Seeding ISO", "state": "stalledUP", "progress": 1.0,
+                "dlspeed": 0, "upspeed": 20480, "eta": 8640000
+            ],
+            "bbbb000000000000000000000000000000000000": [
+                "name": "Downloading ISO", "state": "downloading", "progress": 0.42,
+                "dlspeed": 1_258_291, "upspeed": 5120, "eta": 1800
+            ],
+            // No name → falls back to the hash; progress is malformed.
+            "cccc000000000000000000000000000000000000": [
+                "state": "error", "progress": 7.5, "dlspeed": 0, "upspeed": 0
+            ]
+        ]
+        var qbSummaries = QBittorrentParser.summaries(fromTorrents: qbTorrents)
+        try expect("qb summaries count", qbSummaries.count, 3)
+        let qbDownloading = qbSummaries.first { $0.name == "Downloading ISO" }
+        try expectOptional("qb summary state", qbDownloading?.state, TorrentState.downloading)
+        try expectOptional("qb summary down speed", qbDownloading?.downSpeed, 1_258_291)
+        try expectOptional("qb summary eta", qbDownloading?.etaSeconds, 1800)
+        let qbUnnamed = qbSummaries.first { $0.id == "cccc000000000000000000000000000000000000" }
+        try expectOptional("qb summary name falls back to hash", qbUnnamed?.name, "cccc000000000000000000000000000000000000")
+        try expectOptional("qb summary error state", qbUnnamed?.state, TorrentState.error)
+        try expectOptional("qb summary progress clamped", qbUnnamed?.progress, 1.0)
+        let qbSeeding = qbSummaries.first { $0.name == "Seeding ISO" }
+        try expectOptional("qb summary infinite eta is nil", qbSeeding?.etaSeconds, nil)
+
+        // Fixed sort (design §6.1): downloading first, then seeding, then the
+        // rest; within a group by down speed desc.
+        qbSummaries = TorrentSummary.sorted(qbSummaries)
+        try expect("qb sort: downloading first", qbSummaries.first?.name, "Downloading ISO")
+        try expect("qb sort: seeding second", qbSummaries.dropFirst().first?.name, "Seeding ISO")
+        try expect("qb sort: errored last", qbSummaries.last?.id, "cccc000000000000000000000000000000000000")
+
+        // Transmission `status` integers (research/apis.md §2.2, design §6.1).
+        let txStatusTable: [(Int?, TorrentState)] = [
+            (0, .paused), (1, .checking), (2, .checking),
+            (3, .queued), (4, .downloading), (5, .queued), (6, .seeding),
+            (nil, .other), (99, .other)
+        ]
+        for (raw, expected) in txStatusTable {
+            try expect("tx status \(raw.map(String.init) ?? "nil")", TransmissionParser.state(status: raw), expected)
+        }
+
+        // Transmission eta: -1/-2 are sentinels (design §6.1).
+        try expectOptional("tx eta -1 sentinel", TransmissionParser.etaSeconds(-1), nil)
+        try expectOptional("tx eta -2 sentinel", TransmissionParser.etaSeconds(-2), nil)
+        try expectOptional("tx eta valid", TransmissionParser.etaSeconds(7200), 7200)
+
+        // Transmission summaries: `error != 0` overrides the status mapping.
+        let txTorrents: [Any] = [
+            [
+                "id": 1, "name": "Linux Distro", "status": 4, "percentDone": 0.5,
+                "rateDownload": 524288, "rateUpload": 0, "eta": 900, "error": 0, "errorString": ""
+            ],
+            [
+                "id": 2, "name": "Broken Torrent", "status": 4, "percentDone": 0.1,
+                "rateDownload": 0, "rateUpload": 0, "eta": -1, "error": 3, "errorString": "unregistered torrent"
+            ]
+        ]
+        let txSummaries = TransmissionParser.summaries(fromTorrents: txTorrents)
+        try expect("tx summaries count", txSummaries.count, 2)
+        let txDownloading = txSummaries.first { $0.name == "Linux Distro" }
+        try expectOptional("tx summary state", txDownloading?.state, TorrentState.downloading)
+        try expectOptional("tx summary progress", txDownloading?.progress, 0.5)
+        try expectOptional("tx summary down speed", txDownloading?.downSpeed, 524_288)
+        let txBroken = txSummaries.first { $0.name == "Broken Torrent" }
+        try expectOptional("tx summary error overrides status", txBroken?.state, TorrentState.error)
+        try expectOptional("tx summary eta sentinel is nil", txBroken?.etaSeconds, nil)
+
+        // Progress clamping is shared by both clients (AC17): nil/NaN/negative
+        // clamp to 0, over-range to 1.
+        try expect("clamp nil", TorrentSummary.clampedProgress(nil), 0.0)
+        try expect("clamp negative", TorrentSummary.clampedProgress(-0.2), 0.0)
+        try expect("clamp over range", TorrentSummary.clampedProgress(1.5), 1.0)
+        try expect("clamp NaN", TorrentSummary.clampedProgress(Double.nan), 0.0)
+        try expect("clamp valid", TorrentSummary.clampedProgress(0.42), 0.42)
     }
 
     private static func describeOptional<T>(_ value: T?) -> String {

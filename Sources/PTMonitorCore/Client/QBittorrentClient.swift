@@ -30,12 +30,6 @@ public struct WebAPIVersion: Comparable, Equatable, Sendable, CustomStringConver
 // MARK: - Parsing (pure, so `--selftest` can call it directly)
 
 public enum QBittorrentParser {
-    /// Torrent states counted as "active" (research/apis.md §1.3).
-    public static let activeStates: Set<String> = [
-        "downloading", "metaDL", "forcedDL",
-        "uploading", "forcedUP", "stalledDL", "stalledUP"
-    ]
-
     /// Parses `"2.11.2"` / `"2.0"` into a comparable version.
     public static func webAPIVersion(_ text: String) -> WebAPIVersion? {
         let parts = text.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: ".")
@@ -118,6 +112,60 @@ public enum QBittorrentParser {
         }
     }
 
+    /// Maps a qBittorrent torrent `state` string onto the normalised
+    /// `TorrentState` (design §6.1, research/apis.md §1.3).
+    public static func state(_ raw: String?) -> TorrentState {
+        switch raw {
+        case "downloading", "metaDL", "forcedDL":
+            return .downloading
+        case "stalledDL":
+            return .stalled
+        case "queuedDL", "queuedUP":
+            return .queued
+        case "uploading", "forcedUP", "stalledUP":
+            return .seeding
+        case "pausedDL", "pausedUP":
+            return .paused
+        case "checkingDL", "checkingUP", "checkingResumeData":
+            return .checking
+        case "allocating", "moving", "unknown":
+            return .other
+        case "error", "missingFiles":
+            return .error
+        default:
+            return .other
+        }
+    }
+
+    /// Normalises qBittorrent's eta: `8640000` is the API's "infinite" sentinel
+    /// and a negative value is unknown (design §6.1).
+    public static func etaSeconds(_ value: Any?) -> Int64? {
+        guard let seconds = JSON.int64(value) else { return nil }
+        if seconds < 0 || seconds == 8_640_000 { return nil }
+        return seconds
+    }
+
+    /// Maps the `torrents` map of a `sync/maindata` response (keyed by torrent
+    /// hash) onto normalised summaries (R12, design §6.1). Pure, so
+    /// `--selftest` can call it directly (AC17).
+    public static func summaries(fromTorrents torrents: [String: Any]) -> [TorrentSummary] {
+        var result: [TorrentSummary] = []
+        result.reserveCapacity(torrents.count)
+        for (hash, value) in torrents {
+            guard let entry = value as? [String: Any] else { continue }
+            result.append(TorrentSummary(
+                id: hash,
+                name: JSON.string(entry["name"]) ?? hash,
+                state: state(JSON.string(entry["state"])),
+                progress: TorrentSummary.clampedProgress((entry["progress"] as? NSNumber)?.doubleValue),
+                downSpeed: JSON.int64(entry["dlspeed"]) ?? 0,
+                upSpeed: JSON.int64(entry["upspeed"]) ?? 0,
+                etaSeconds: etaSeconds(entry["eta"])
+            ))
+        }
+        return result
+    }
+
     /// Maps a `GET /api/v2/sync/maindata?rid=0` body into a snapshot.
     ///
     /// `free_space_on_disk` is read only when the cached WebAPI version is at
@@ -140,11 +188,14 @@ public enum QBittorrentParser {
         }
 
         let torrents = root["torrents"] as? [String: Any] ?? [:]
-        let active = torrents.values.reduce(into: 0) { count, value in
-            guard let entry = value as? [String: Any],
-                  let state = entry["state"] as? String,
-                  activeStates.contains(state) else { return }
-            count += 1
+        let summaries = summaries(fromTorrents: torrents)
+        // Active count is derived from the normalised states (design §6.1): the
+        // same state table drives the torrent list, so there is exactly one
+        // mapping to keep in sync with research/apis.md §1.3.
+        let active = summaries.reduce(into: 0) { count, summary in
+            if summary.state == .downloading || summary.state == .seeding || summary.state == .stalled {
+                count += 1
+            }
         }
 
         return TransferSnapshot(
@@ -154,7 +205,8 @@ public enum QBittorrentParser {
             totalTorrents: torrents.count,
             freeSpace: freeSpace,
             connectionState: connectionState(JSON.string(serverState["connection_status"])),
-            fetchedAt: fetchedAt
+            fetchedAt: fetchedAt,
+            torrents: TorrentSummary.sorted(summaries)
         )
     }
 }

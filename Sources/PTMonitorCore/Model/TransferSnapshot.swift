@@ -26,6 +26,10 @@ public struct TransferSnapshot: Equatable, Sendable {
     public var freeSpace: Int64?
     public var connectionState: ConnectionState
     public var fetchedAt: Date
+    /// Per-torrent summaries for the dropdown torrent list (R12, design §6.2).
+    /// Empty when the server reports no torrents or the client could not list
+    /// them.
+    public var torrents: [TorrentSummary]
 
     public init(
         downSpeed: Int64 = 0,
@@ -34,7 +38,8 @@ public struct TransferSnapshot: Equatable, Sendable {
         totalTorrents: Int = 0,
         freeSpace: Int64? = nil,
         connectionState: ConnectionState = .unknown,
-        fetchedAt: Date = Date()
+        fetchedAt: Date = Date(),
+        torrents: [TorrentSummary] = []
     ) {
         self.downSpeed = downSpeed
         self.upSpeed = upSpeed
@@ -43,5 +48,6 @@ public struct TransferSnapshot: Equatable, Sendable {
         self.freeSpace = freeSpace
         self.connectionState = connectionState
         self.fetchedAt = fetchedAt
+        self.torrents = torrents
     }
 }
