@@ -74,5 +74,11 @@
 "No servers configured. Add a qBittorrent or Transmission server to start monitoring." = "尚未配置服务器。添加一台 qBittorrent 或 Transmission 服务器即可开始监控。";
 "Poll every %lld seconds" = "每 %lld 秒轮询一次";
 "Show speeds in the menu bar" = "在菜单栏显示速度";
+
+/* Language switcher (R9 in-app revision) */
+"Follow System" = "跟随系统";
+"Language" = "语言";
+"Changes take effect after PT Monitor restarts." = "更改将在 PT Monitor 重新启动后生效。";
+"Relaunch Now" = "立即重启";
 "Edit" = "编辑";
 "Delete" = "删除";
