@@ -22,6 +22,12 @@ public final class SettingsStore: ObservableObject {
         public static let servers = "servers"
         public static let pollInterval = "pollInterval"
         public static let showSpeedsInMenuBar = "showSpeedsInMenuBar"
+        public static let appLanguage = "appLanguage"
+        /// The per-app language override; the only key read at launch, so a
+        /// change only takes effect after relaunch. `kCFPreferencesAnyApplication`
+        /// keeps the write inside the app's own defaults domain even under a
+        /// temporary `UserDefaults` suite (as in `--selftest`).
+        static let appleLanguages = "AppleLanguages"
     }
 
     /// Default poll interval in seconds (design §5).
@@ -40,11 +46,16 @@ public final class SettingsStore: ObservableObject {
     /// Whether the menu bar shows live speed text alongside the icon (R5.3).
     @Published public private(set) var showSpeedsInMenuBar: Bool
 
+    /// In-app language choice (R9 switcher), applied to `AppleLanguages` in
+    /// `setAppLanguage` so the two can never drift apart.
+    @Published public private(set) var appLanguage: AppLanguage
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.servers = Self.loadServers(from: defaults)
         self.pollInterval = Self.loadPollInterval(from: defaults)
         self.showSpeedsInMenuBar = Self.loadShowSpeeds(from: defaults)
+        self.appLanguage = Self.loadAppLanguage(from: defaults)
     }
 
     // MARK: - Server list
@@ -108,6 +119,22 @@ public final class SettingsStore: ObservableObject {
         defaults.set(isEnabled, forKey: Key.showSpeedsInMenuBar)
     }
 
+    /// Sets the UI language and applies the matching `AppleLanguages`
+    /// override in the same call, so the persisted preference and what the
+    /// next launch actually reads cannot drift apart. `AppleLanguages` is
+    /// read only at process launch, so the new language shows up after a
+    /// relaunch (the preferences UI offers "Relaunch Now").
+    public func setAppLanguage(_ language: AppLanguage) {
+        guard language != appLanguage else { return }
+        appLanguage = language
+        defaults.set(language.rawValue, forKey: Key.appLanguage)
+        if let codes = language.appleLanguages {
+            defaults.set(codes, forKey: Key.appleLanguages)
+        } else {
+            defaults.removeObject(forKey: Key.appleLanguages)
+        }
+    }
+
     /// Clamps an interval into `pollIntervalRange`.
     public static func clamp(_ interval: TimeInterval) -> TimeInterval {
         min(max(interval, pollIntervalRange.lowerBound), pollIntervalRange.upperBound)
@@ -147,5 +174,24 @@ public final class SettingsStore: ObservableObject {
             return true
         }
         return defaults.bool(forKey: Key.showSpeedsInMenuBar)
+    }
+
+    /// One-time migration read: `appLanguage` unset but a per-app
+    /// `AppleLanguages` override exists (e.g. written via `defaults write`
+    /// before the in-app switcher existed) → derive the choice from its first
+    /// entry so the picker shows reality instead of "Follow System". This
+    /// runs only when the switcher's own key is absent; later manual
+    /// `defaults write` calls are not fought over.
+    private static func loadAppLanguage(from defaults: UserDefaults) -> AppLanguage {
+        if let raw = defaults.string(forKey: Key.appLanguage),
+           let stored = AppLanguage(rawValue: raw) {
+            return stored
+        }
+        if let codes = defaults.stringArray(forKey: Key.appleLanguages),
+           let first = codes.first,
+           let derived = AppLanguage(appleLanguageCode: first) {
+            return derived
+        }
+        return .system
     }
 }

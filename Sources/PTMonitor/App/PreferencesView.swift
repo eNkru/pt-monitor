@@ -50,6 +50,10 @@ struct PreferencesView: View {
 
             Toggle("Show speeds in the menu bar", isOn: showSpeedsBinding)
 
+            Divider()
+
+            LanguageSection(settings: settings)
+
             Spacer()
         }
         .padding(16)
@@ -116,6 +120,64 @@ struct PreferencesView: View {
             get: { settings.showSpeedsInMenuBar },
             set: { settings.setShowSpeedsInMenuBar($0) }
         )
+    }
+}
+
+/// Language switcher (R9 in-app revision): Follow System / English / 简体中文.
+/// The choice is persisted via `SettingsStore.setAppLanguage`, which also
+/// writes the per-app `AppleLanguages` override. That key is read only at
+/// launch, so a note says a restart is needed and offers a relaunch button.
+private struct LanguageSection: View {
+    @ObservedObject var settings: SettingsStore
+    @State private var confirmRelaunch = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Picker("Language", selection: languageBinding) {
+                ForEach(AppLanguage.allCases, id: \.self) { language in
+                    Text(language.displayName).tag(language)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(width: 220, alignment: .leading)
+
+            HStack(spacing: 8) {
+                Text(L10n.languageRestartNote)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                if settings.appLanguage != .system {
+                    Button(L10n.relaunchNow) { Relauncher.relaunch() }
+                        .controlSize(.small)
+                }
+            }
+        }
+    }
+
+    private var languageBinding: Binding<AppLanguage> {
+        Binding(
+            get: { settings.appLanguage },
+            set: { settings.setAppLanguage($0) }
+        )
+    }
+}
+
+/// Relaunches the app so a language change takes effect.
+@MainActor
+enum Relauncher {
+    /// Launches the .app bundle again and terminates. When running the raw
+    /// SwiftPM binary there is no bundle to `open`; re-exec the binary itself.
+    static func relaunch() {
+        let bundle = Bundle.main
+        if bundle.bundleURL.pathExtension == "app" {
+            NSWorkspace.shared.open(bundle.bundleURL)
+        } else {
+            let executable = CommandLine.arguments[0]
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = Array(CommandLine.arguments.dropFirst())
+            try? process.run()
+        }
+        NSApp.terminate(nil)
     }
 }
 

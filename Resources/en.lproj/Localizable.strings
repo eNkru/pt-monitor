@@ -76,5 +76,11 @@
 "No servers configured. Add a qBittorrent or Transmission server to start monitoring." = "No servers configured. Add a qBittorrent or Transmission server to start monitoring.";
 "Poll every %lld seconds" = "Poll every %lld seconds";
 "Show speeds in the menu bar" = "Show speeds in the menu bar";
+
+/* Language switcher (R9 in-app revision) */
+"Follow System" = "Follow System";
+"Language" = "Language";
+"Changes take effect after PT Monitor restarts." = "Changes take effect after PT Monitor restarts.";
+"Relaunch Now" = "Relaunch Now";
 "Edit" = "Edit";
 "Delete" = "Delete";

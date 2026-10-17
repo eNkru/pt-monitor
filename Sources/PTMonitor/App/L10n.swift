@@ -93,6 +93,14 @@ enum L10n {
         String(format: s("Could not save the password to the Keychain (%@). Nothing was saved."), error)
     }
 
+    // MARK: - Language switcher (R9 in-app revision)
+
+    static var languageRestartNote: String {
+        s("Changes take effect after PT Monitor restarts.")
+    }
+
+    static var relaunchNow: String { s("Relaunch Now") }
+
     // MARK: - Window
 
     static var preferencesTitle: String { s("PT Monitor Preferences") }
