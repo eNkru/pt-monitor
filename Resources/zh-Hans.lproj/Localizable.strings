@@ -1,0 +1,78 @@
+/* Simplified Chinese. Keys are the English reference strings. */
+
+/* 面板头部 */
+"just now" = "刚刚";
+"%llds ago" = "%lld秒前";
+"%lldm ago" = "%lld分钟前";
+"%lldh ago" = "%lld小时前";
+"%lld server · %lld online" = "%lld 台服务器 · %lld 台在线";
+"%lld servers · %lld online" = "%lld 台服务器 · %lld 台在线";
+"Not configured" = "未配置";
+
+/* 汇总数字区 */
+"%lld · %lld total" = "%lld · 共 %lld 个";
+
+/* 种子剩余时间与分区提示 */
+"%lldh %02lldm" = "%lld小时%02lld分";
+"%lldm %02llds" = "%lld分%02lld秒";
+"%llds" = "%lld秒";
+"No torrents." = "暂无种子。";
+"Connecting…" = "连接中…";
+"Disabled" = "已停用";
+
+/* 失败原因标题（技术细节保持英文） */
+"Unreachable" = "无法连接";
+"Sign-in failed" = "登录失败";
+"Temporarily banned" = "已被临时封禁";
+"Unexpected response" = "响应异常";
+"Server error" = "服务器错误";
+
+/* 编辑器测试结果 */
+"Connected: %@" = "连接成功：%@";
+"Failed: %@" = "连接失败：%@";
+
+/* 表单校验（请求发出前的测试失败） */
+"enter a host name or IP address" = "请输入主机名或 IP 地址";
+"port must be a whole number between 1 and 65535" = "端口必须是 1–65535 之间的整数";
+"Used port %lld from the host field." = "已使用主机字段中的端口 %lld。";
+"Enabled HTTPS because the host starts with https://." = "主机以 https:// 开头，已自动启用 HTTPS。";
+"Disabled HTTPS because the host starts with http://." = "主机以 http:// 开头，已自动停用 HTTPS。";
+"Enable or disable this server" = "启用或停用此服务器";
+"Could not save the password to the Keychain (%@). Nothing was saved." = "无法将密码保存到钥匙串（%@）。未保存任何内容。";
+
+/* 窗口 */
+"PT Monitor Preferences" = "PT Monitor 偏好设置";
+
+/* SwiftUI 界面文案（Text/Button/Toggle/TextField/Picker 经 LocalizedStringKey 查找）。
+   专有名词——“PT Monitor”、“qBittorrent”、“Transmission”——刻意不入表：
+   缺键回退会在任何语言下原样渲染。 */
+"No servers configured" = "尚未配置服务器";
+"Add Server…" = "添加服务器…";
+"↓ Speed" = "↓ 速度";
+"↑ Speed" = "↑ 速度";
+"Active Torrents" = "活跃种子";
+"Free Space" = "剩余空间";
+"Refresh Now" = "立即刷新";
+"Preferences…" = "偏好设置…";
+"Quit PT Monitor" = "退出 PT Monitor";
+"Add Server" = "添加服务器";
+"Edit Server" = "编辑服务器";
+"Type" = "类型";
+"Name" = "名称";
+"Host" = "主机";
+"Port" = "端口";
+"Use HTTPS" = "使用 HTTPS";
+"Allow self-signed certificate" = "允许自签名证书";
+"User name" = "用户名";
+"Password" = "密码";
+"Enabled" = "已启用";
+"Testing…" = "测试中…";
+"Test Connection" = "测试连接";
+"Cancel" = "取消";
+"Save" = "保存";
+"Servers" = "服务器";
+"No servers configured. Add a qBittorrent or Transmission server to start monitoring." = "尚未配置服务器。添加一台 qBittorrent 或 Transmission 服务器即可开始监控。";
+"Poll every %lld seconds" = "每 %lld 秒轮询一次";
+"Show speeds in the menu bar" = "在菜单栏显示速度";
+"Edit" = "编辑";
+"Delete" = "删除";

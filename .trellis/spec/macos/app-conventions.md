@@ -256,3 +256,51 @@ defaults.set(config.password, forKey: "password-\(config.id)")
 let snapshot = try await client.fetchSnapshot()   // observe only
 try keychain.setPassword(password, for: config.id)
 ```
+
+## 10. Localization (R9: English + Simplified Chinese)
+
+Two mechanisms, decided by where the string lives:
+
+- **SwiftUI string literals** (`Text/Button/Toggle/TextField/Picker/SecureField`
+  titles, `.help()` tooltips) are already `LocalizedStringKey` — they localize
+  purely through `Localizable.strings`, no code changes. A `Text(someString)`
+  with a **variable** does NOT localize; if a dynamic string must localize, it
+  goes through `L10n` (or the param type becomes `LocalizedStringKey`, as in
+  `PanelView.stat(label:)` and `FooterRow.title`).
+- **Code-built strings** go through `App/L10n.swift` +
+  `NSLocalizedString`. **The key IS the English text** — a bundle without a
+  matching `.lproj` falls back to exactly the old English, which keeps raw
+  binary runs (`--probe`, `--selftest`) English forever.
+
+Hard rules:
+
+- **`--selftest`/`--probe` output and `ServerFailure.message` technical detail
+  stay English, always.** No selftest assertion may depend on a localizable
+  string (the check: forced `-AppleLanguages (zh-Hans)` selftest must pass).
+  UI failure notes render a localized cause headline (`L10n.causeHeadline`)
+  with the English detail beneath it — diagnostics stay greppable (R6).
+- **Proper names** ("PT Monitor", "qBittorrent", "Transmission") are
+  deliberately absent from the tables; missing-key fallback renders them
+  verbatim in every language.
+- **Parity is a build gate**: `scripts/check-localization.py` (runs inside
+  `build-app.sh`, before codesign) fails the build unless every
+  `Resources/*.lproj/Localizable.strings` carries the same key set. Adding a
+  UI string means adding it to **both** tables in the same change.
+- `CFBundleLocalizations` = `[en, zh-Hans]`; the bundle script copies every
+  `Resources/*.lproj` into `Contents/Resources`.
+
+#### Wrong — a new UI string with no table entry
+
+```swift
+Text("Delete Server")            // English forever; zh users see English
+// and nothing in scripts/check-localization.py catches it (the tables
+// only know the keys that already exist).
+```
+
+#### Correct — add the key to every language in the same change
+
+```swift
+Text("Delete Server")
+// en.lproj:   "Delete Server" = "Delete Server";
+// zh-Hans.lproj: "Delete Server" = "删除服务器";
+```

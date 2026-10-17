@@ -82,7 +82,7 @@ struct PreferencesView: View {
             // The password lives only in the Keychain, never in ServerConfig (R4).
             try keychain.setPassword(password, for: config.id)
         } catch {
-            return "Could not save the password to the Keychain (\(error)). Nothing was saved."
+            return L10n.keychainSaveFailure("\(error)")
         }
         if isNew {
             settings.add(config)
@@ -151,7 +151,7 @@ private struct ServerRow: View {
             Toggle("", isOn: Binding(get: { server.isEnabled }, set: { onToggle($0) }))
                 .labelsHidden()
                 .toggleStyle(.checkbox)
-                .help("Enable or disable this server")
+                .help(L10n.enableDisableHelp)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(server.displayName)

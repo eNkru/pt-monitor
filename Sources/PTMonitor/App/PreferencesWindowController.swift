@@ -22,7 +22,7 @@ final class PreferencesWindowController: NSWindowController {
         )
         let hosting = NSHostingController(rootView: rootView)
         let window = NSWindow(contentViewController: hosting)
-        window.title = "PT Monitor Preferences"
+        window.title = L10n.preferencesTitle
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.setContentSize(NSSize(width: 520, height: 460))
         window.isReleasedWhenClosed = false

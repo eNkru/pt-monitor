@@ -1,0 +1,80 @@
+/* English (reference). Keys are the English strings themselves, so this file
+   only pins the fallback; zh-Hans.lproj carries the translations. */
+
+/* Panel header */
+"just now" = "just now";
+"%llds ago" = "%llds ago";
+"%lldm ago" = "%lldm ago";
+"%lldh ago" = "%lldh ago";
+"%lld server · %lld online" = "%lld server · %lld online";
+"%lld servers · %lld online" = "%lld servers · %lld online";
+"Not configured" = "Not configured";
+
+/* Aggregate grid */
+"%lld · %lld total" = "%lld · %lld total";
+
+/* Per-torrent eta + section notes */
+"%lldh %02lldm" = "%lldh %02lldm";
+"%lldm %02llds" = "%lldm %02llds";
+"%llds" = "%llds";
+"No torrents." = "No torrents.";
+"Connecting…" = "Connecting…";
+"Disabled" = "Disabled";
+
+/* Failure headlines (technical detail stays English) */
+"Unreachable" = "Unreachable";
+"Sign-in failed" = "Sign-in failed";
+"Temporarily banned" = "Temporarily banned";
+"Unexpected response" = "Unexpected response";
+"Server error" = "Server error";
+
+/* Editor results */
+"Connected: %@" = "Connected: %@";
+"Failed: %@" = "Failed: %@";
+
+/* Tests that failed before the request went out (form validation). */
+"enter a host name or IP address" = "enter a host name or IP address";
+"port must be a whole number between 1 and 65535" = "port must be a whole number between 1 and 65535";
+"Used port %lld from the host field." = "Used port %lld from the host field.";
+"Enabled HTTPS because the host starts with https://." = "Enabled HTTPS because the host starts with https://.";
+"Disabled HTTPS because the host starts with http://." = "Disabled HTTPS because the host starts with http://.";
+"Enable or disable this server" = "Enable or disable this server";
+"Could not save the password to the Keychain (%@). Nothing was saved." = "Could not save the password to the Keychain (%@). Nothing was saved.";
+
+/* Window */
+"PT Monitor Preferences" = "PT Monitor Preferences";
+
+/* SwiftUI literals (Text/Button/Toggle/TextField/Picker look these up through
+   LocalizedStringKey). Proper names — "PT Monitor", "qBittorrent",
+   "Transmission" — are deliberately NOT in the tables: the missing-key
+   fallback renders them verbatim in every language. */
+"No servers configured" = "No servers configured";
+"Add Server…" = "Add Server…";
+"↓ Speed" = "↓ Speed";
+"↑ Speed" = "↑ Speed";
+"Active Torrents" = "Active Torrents";
+"Free Space" = "Free Space";
+"Refresh Now" = "Refresh Now";
+"Preferences…" = "Preferences…";
+"Quit PT Monitor" = "Quit PT Monitor";
+"Add Server" = "Add Server";
+"Edit Server" = "Edit Server";
+"Type" = "Type";
+"Name" = "Name";
+"Host" = "Host";
+"Port" = "Port";
+"Use HTTPS" = "Use HTTPS";
+"Allow self-signed certificate" = "Allow self-signed certificate";
+"User name" = "User name";
+"Password" = "Password";
+"Enabled" = "Enabled";
+"Testing…" = "Testing…";
+"Test Connection" = "Test Connection";
+"Cancel" = "Cancel";
+"Save" = "Save";
+"Servers" = "Servers";
+"No servers configured. Add a qBittorrent or Transmission server to start monitoring." = "No servers configured. Add a qBittorrent or Transmission server to start monitoring.";
+"Poll every %lld seconds" = "Poll every %lld seconds";
+"Show speeds in the menu bar" = "Show speeds in the menu bar";
+"Edit" = "Edit";
+"Delete" = "Delete";

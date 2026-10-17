@@ -152,7 +152,7 @@ public enum ServerConfigValidator {
 
         let rawHost = draft.host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !rawHost.isEmpty else {
-            throw ServerFailure.unreachable("enter a host name or IP address")
+            throw ServerFailure.unreachable(NSLocalizedString("enter a host name or IP address", comment: "validation"))
         }
 
         let portText = draft.port.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -161,14 +161,17 @@ public enum ServerConfigValidator {
             fallbackPort = draft.kind.defaultPort
         } else {
             guard let value = Int(portText), (1...65535).contains(value) else {
-                throw ServerFailure.unreachable("port must be a whole number between 1 and 65535")
+                throw ServerFailure.unreachable(
+                    NSLocalizedString("port must be a whole number between 1 and 65535", comment: "validation"))
             }
             fallbackPort = value
         }
 
         let parsed = try HostFieldParser.parse(rawHost, defaultPort: fallbackPort)
         if parsed.extractedPort && !portText.isEmpty {
-            notices.append("Used port \(parsed.port) from the host field.")
+            notices.append(String(
+                format: NSLocalizedString("Used port %lld from the host field.", comment: "validation notice"),
+                parsed.port))
         }
 
         var useTLS = draft.useTLS
@@ -176,8 +179,8 @@ public enum ServerConfigValidator {
             if schemeIsTLS != useTLS {
                 notices.append(
                     schemeIsTLS
-                        ? "Enabled HTTPS because the host starts with https://."
-                        : "Disabled HTTPS because the host starts with http://."
+                        ? NSLocalizedString("Enabled HTTPS because the host starts with https://.", comment: "notice")
+                        : NSLocalizedString("Disabled HTTPS because the host starts with http://.", comment: "notice")
                 )
             }
             useTLS = schemeIsTLS

@@ -65,7 +65,13 @@ not control.
   (including credentials) before saving.
 - **R8 — Read-only.** No control actions. No torrent add/pause/resume/remove, no
   settings mutation on the remote server.
-- **R9 — English UI.**
+- **R9 — English + Simplified Chinese UI (revised 2026-10-17; originally
+  "English UI").** Both languages ship in the bundle; macOS resolves per system
+  preference (`CFBundleLocalizations` = en, zh-Hans). Translation keys are the
+  English strings, so untranslated bundles fall back to English. Diagnostic
+  detail (failure messages, `--probe`/`--selftest` output) stays English by
+  design; the UI layer shows a localized cause headline with the English
+  detail beneath it (R6).
 - **R10 — CLT-only build.** `swift build` must succeed with Command Line Tools
   alone, and a script must assemble a launchable, ad-hoc-signed `.app` bundle.
 - **R11 — Headless probe mode.** The binary supports a non-GUI probe of a single

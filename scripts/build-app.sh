@@ -42,6 +42,18 @@ chmod +x "$CONTENTS/MacOS/$APP_NAME"
 # shows in Finder/Get Info, but the bundle should still look proper there).
 cp "$ROOT/Resources/AppIcon.icns" "$CONTENTS/Resources/AppIcon.icns"
 
+# Localizations (en + zh-Hans). English is also an explicit lproj: its key ==
+# value pins the fallback text outside a localized bundle.
+for lproj in "$ROOT"/Resources/*.lproj; do
+    cp -R "$lproj" "$CONTENTS/Resources/"
+done
+
+# Guard against drift: both .lproj files must carry the same key set.
+if ! python3 "$ROOT/scripts/check-localization.py" "$ROOT/Resources"; then
+    echo "error: localization key mismatch between en.lproj and zh-Hans.lproj" >&2
+    exit 1
+fi
+
 # Info.plist is rendered with the version so it stays in one place.
 sed "s/@VERSION@/$APP_VERSION/g" "$ROOT/Resources/Info.plist" > "$CONTENTS/Info.plist"
 

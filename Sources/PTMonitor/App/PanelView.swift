@@ -114,7 +114,7 @@ struct PanelView: View {
                 Text("PT Monitor")
                     .font(.system(size: 15, weight: .semibold))
                 TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                    Text(Self.freshnessText(fetched: newestFetchDate, now: timeline.date))
+                    Text(L10n.freshness(fetched: newestFetchDate, now: timeline.date))
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.secondary)
                 }
@@ -131,23 +131,9 @@ struct PanelView: View {
         monitor.statuses.values.compactMap { $0.snapshot?.fetchedAt }.max()
     }
 
+    /// "N servers · M online" via `L10n.serverCount` (localized).
     private var serverCountText: String {
-        let count = settings.servers.count
-        guard count > 0 else { return "Not configured" }
-        let online = monitor.aggregate.onlineServers
-        return "\(count) server\(count == 1 ? "" : "s") · \(online) online"
-    }
-
-    /// Relative freshness: "just now" under 5 s, then "Ns ago" / "Nm ago" /
-    /// "Nh ago". Nothing online yet → an em dash, never a bogus number.
-    static func freshnessText(fetched: Date?, now: Date) -> String {
-        guard let fetched else { return "—" }
-        let seconds = Int(now.timeIntervalSince(fetched))
-        if seconds < 5 { return "just now" }
-        if seconds < 60 { return "\(seconds)s ago" }
-        let minutes = seconds / 60
-        if minutes < 60 { return "\(minutes)m ago" }
-        return "\(minutes / 60)h ago"
+        L10n.serverCount(total: settings.servers.count, online: monitor.aggregate.onlineServers)
     }
 
     // MARK: - Aggregate number grid (CodexBar's 2-column label-over-value grid)
@@ -178,7 +164,7 @@ struct PanelView: View {
             )
             stat(
                 label: "Active Torrents",
-                value: anyOnline ? "\(aggregate.activeTorrents) · \(totalTorrents) total" : "—"
+                value: anyOnline ? L10n.activeTorrents(active: aggregate.activeTorrents, total: totalTorrents) : "—"
             )
             stat(
                 label: "Free Space",
@@ -187,7 +173,8 @@ struct PanelView: View {
         }
     }
 
-    private func stat(label: String, value: String) -> some View {
+    /// Labels go through `LocalizedStringKey` so the grid headers localize.
+    private func stat(label: LocalizedStringKey, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
                 .font(.system(size: 10, weight: .semibold))
@@ -232,7 +219,7 @@ struct PanelView: View {
             switch monitor.statuses[server.id] ?? .connecting {
             case .online(let snapshot):
                 if snapshot.torrents.isEmpty {
-                    note("No torrents.")
+                    note(L10n.torrentsEmpty)
                 } else {
                     // Clients already apply the fixed sort (design §6.1);
                     // there is deliberately no user-facing sort UI (R8).
@@ -245,14 +232,24 @@ struct PanelView: View {
                     }
                 }
             case .failed(let failure):
-                // Cause-specific hint against the exact server (R6 / AC7 / AC8).
-                note(failure.message, isError: true)
+                // Cause-specific headline against the exact server (R6 /
+                // AC7 / AC8), localized; the technical diagnostic detail stays
+                // English beneath it.
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(L10n.causeHeadline(of: failure))
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                    Text(failure.message)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.bottom, 6)
             case .connecting:
-                note("Connecting…")
+                note(L10n.connecting)
             case .disabled:
                 // Unreachable: sections are filtered to enabled servers.
                 // Kept so the switch is exhaustive.
-                note("Disabled")
+                note(L10n.disabled)
             }
         }
     }
@@ -337,13 +334,9 @@ struct PanelView: View {
     }
 
     /// `nil` eta renders as an em dash, never a bogus number (AC17).
+    /// Localized unit formats; English falls back via the key.
     static func etaText(_ seconds: Int64?) -> String {
-        guard let seconds, seconds >= 0 else { return "—" }
-        let hours = seconds / 3600
-        let minutes = (seconds % 3600) / 60
-        if hours > 0 { return "\(hours)h \(minutes)m" }
-        if minutes > 0 { return "\(minutes)m \(seconds % 60)s" }
-        return "\(seconds)s"
+        L10n.eta(seconds)
     }
 
     // MARK: - Footer action rows
@@ -413,7 +406,9 @@ private struct PillMeter: View {
 /// Full-width footer row with a hover highlight. One of the panel's only
 /// interactive elements — torrent rows and sections carry no actions (R8).
 private struct FooterRow: View {
-    let title: String
+    /// LocalizedStringKey so the row titles resolve through Localizable.strings
+    /// (a plain `String` would render verbatim).
+    let title: LocalizedStringKey
     let systemImage: String
     let action: () -> Void
 

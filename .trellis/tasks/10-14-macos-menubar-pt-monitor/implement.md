@@ -245,6 +245,30 @@ old CLT 14.2 install. Reinstalled **CLT 16.2 (Swift 6.0.3)** via the
   it shows only in Finder/Get Info. Geometry/palette verified by pixel
   sampling (corners transparent, arrows/meter correct); gates re-run green.
 
+## Localization round (R9 revision, 2026-10-17)
+
+- English + Simplified Chinese. Two mechanisms: SwiftUI literals localize via
+  `LocalizedStringKey` + `Localizable.strings` (no code churn); code-built
+  strings go through `App/L10n.swift` with the English text as the key, so a
+  bundle without a matching lproj falls back to exactly the old English.
+  Proper names (PT Monitor / qBittorrent / Transmission) are deliberately
+  absent from the tables (missing-key fallback renders them verbatim).
+- UI failure notes are two lines: localized cause headline + English technical
+  detail (R6 diagnostics stay greppable). Form-validation messages in
+  `ServerConfigValidation` localize; `HostFieldParser` parse errors stay English
+  (cross-checked by `--selftest`, and shown only as the detail line).
+- `scripts/check-localization.py` (wired into `build-app.sh`, pre-sign) fails
+  the build unless every `*.lproj/Localizable.strings` carries the same key set
+  — 59 keys per language. `CFBundleLocalizations` = [en, zh-Hans].
+- `trellis-check` round caught and fixed: hardcoded Keychain save-failure
+  message, missing tooltip key, 3 dead keys. Bundle binary selftest passes with
+  `-AppleLanguages (zh-Hans)` forced — determinism proven on this machine,
+  whose AppleLanguages lists zh-Hans.
+- Gates: `swift build` 0 warnings, parity 59/59, `--selftest` 185 (raw + bundle,
+  English + forced Chinese), bundle script green, codesign verify green.
+- **Pending live verification**: GUI in each language (System Settings →
+  per-app language, or reorder AppleLanguages).
+
 ## Live verification round 1 — the "banned IP" false alarm (2026-10-15)
 
 First live qBittorrent configuration reported *"the server banned this IP

@@ -205,14 +205,14 @@ final class ServerEditorModel: ObservableObject, @unchecked Sendable {
                 let client = try ServerEditorModel.makeClient(config: config, password: password)
                 let version = try await client.testConnection()
                 await MainActor.run {
-                    model.message = "Connected: \(version)"
+                    model.message = L10n.connected(version)
                     model.messageIsError = false
                     model.isTesting = false
                 }
             } catch {
                 let text = (error as? ServerFailure)?.message ?? error.localizedDescription
                 await MainActor.run {
-                    model.message = "Failed: \(text)"
+                    model.message = L10n.failed(text)
                     model.messageIsError = true
                     model.isTesting = false
                 }
