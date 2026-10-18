@@ -600,6 +600,24 @@ public enum SelfTest {
         try expect("clamp over range", TorrentSummary.clampedProgress(1.5), 1.0)
         try expect("clamp NaN", TorrentSummary.clampedProgress(Double.nan), 0.0)
         try expect("clamp valid", TorrentSummary.clampedProgress(0.42), 0.42)
+
+        // `isActive` drives the dropdown's "active only" filter: true only
+        // when the torrent actually transfers data in either direction.
+        try expect(
+            "isActive false when idle",
+            TorrentSummary(id: "1", name: "Idle", state: .paused, progress: 1).isActive,
+            false
+        )
+        try expect(
+            "isActive true when downloading",
+            TorrentSummary(id: "2", name: "Downloading", state: .downloading, progress: 0.5, downSpeed: 1).isActive,
+            true
+        )
+        try expect(
+            "isActive true when uploading",
+            TorrentSummary(id: "3", name: "Seeding", state: .seeding, progress: 1, upSpeed: 1).isActive,
+            true
+        )
     }
 
     private static func describeOptional<T>(_ value: T?) -> String {
@@ -639,6 +657,7 @@ public enum SelfTest {
         try expect("settings start empty", settings.servers.count, 0)
         try expect("settings default interval", settings.pollInterval, 2)
         try expect("settings default show-speeds", settings.showSpeedsInMenuBar, true)
+        try expect("settings default show-active-only", settings.showActiveTorrentsOnly, false)
 
         var server = ServerConfig(kind: .qbittorrent, name: "NAS", host: "192.168.1.2", port: 8080)
         settings.add(server)
@@ -658,12 +677,15 @@ public enum SelfTest {
         try expect("settings clamps interval high", settings.pollInterval, 60)
         settings.setShowSpeedsInMenuBar(false)
         try expect("settings show-speeds off persisted", settings.showSpeedsInMenuBar, false)
+        settings.setShowActiveTorrentsOnly(true)
+        try expect("settings show-active-only on persisted", settings.showActiveTorrentsOnly, true)
 
         // Reload through a fresh store on the same suite: proves persistence.
         let reloaded = SettingsStore(defaults: defaults)
         try expect("settings reload server count", reloaded.servers.count, 1)
         try expect("settings reload interval", reloaded.pollInterval, 60)
         try expect("settings reload show-speeds", reloaded.showSpeedsInMenuBar, false)
+        try expect("settings reload show-active-only", reloaded.showActiveTorrentsOnly, true)
 
         settings.delete(id: server.id)
         try expect("settings delete", settings.servers.count, 0)

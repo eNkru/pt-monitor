@@ -228,15 +228,26 @@ struct PanelView: View {
             sectionHeader(server)
             switch monitor.statuses[server.id] ?? .connecting {
             case .online(let snapshot):
-                if snapshot.torrents.isEmpty {
-                    note(L10n.torrentsEmpty)
+                // Filter first, cap second: when "active only" is on, rows and
+                // the "+ N more" footnote are both computed against the
+                // filtered array. Clients already applied the fixed sort
+                // (design §6.1), and filtering preserves that order; there is
+                // deliberately no user-facing sort UI (R8).
+                let candidates = settings.showActiveTorrentsOnly
+                    ? snapshot.torrents.filter(\.isActive)
+                    : snapshot.torrents
+                if candidates.isEmpty {
+                    // Filter on + non-empty library + nothing transferring is
+                    // its own state; an actually empty library stays "No
+                    // torrents." either way.
+                    note(settings.showActiveTorrentsOnly && !snapshot.torrents.isEmpty
+                        ? L10n.noActiveTorrents
+                        : L10n.torrentsEmpty)
                 } else {
-                    // Clients already apply the fixed sort (design §6.1);
-                    // there is deliberately no user-facing sort UI (R8).
                     // Only the first `maxVisibleTorrentsPerServer` rows
                     // render; the rest collapses into the footnote below
                     // (performance: see the constant's comment).
-                    let visible = snapshot.torrents.prefix(Self.maxVisibleTorrentsPerServer)
+                    let visible = candidates.prefix(Self.maxVisibleTorrentsPerServer)
                     ForEach(Array(visible.enumerated()), id: \.element.id) { index, torrent in
                         if index > 0 {
                             hairline
@@ -244,8 +255,8 @@ struct PanelView: View {
                         }
                         row(torrent)
                     }
-                    if snapshot.torrents.count > visible.count {
-                        note(L10n.moreTorrents(snapshot.torrents.count - visible.count))
+                    if candidates.count > visible.count {
+                        note(L10n.moreTorrents(candidates.count - visible.count))
                     }
                 }
             case .failed(let failure):

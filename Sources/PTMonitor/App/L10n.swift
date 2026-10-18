@@ -58,6 +58,7 @@ enum L10n {
     // MARK: - Per-server sections
 
     static var torrentsEmpty: String { s("No torrents.") }
+    static var noActiveTorrents: String { s("No active torrents.") }
     static var connecting: String { s("Connecting…") }
     static var disabled: String { s("Disabled") }
 

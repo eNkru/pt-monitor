@@ -17,6 +17,7 @@
 "%lldm %02llds" = "%lld分%02lld秒";
 "%llds" = "%lld秒";
 "No torrents." = "暂无种子。";
+"No active torrents." = "没有活动中的种子。";
 "Connecting…" = "连接中…";
 "Disabled" = "已停用";
 "%lld more torrents" = "还有 %lld 个种子";
@@ -75,6 +76,7 @@
 "No servers configured. Add a qBittorrent or Transmission server to start monitoring." = "尚未配置服务器。添加一台 qBittorrent 或 Transmission 服务器即可开始监控。";
 "Poll every %lld seconds" = "每 %lld 秒轮询一次";
 "Show speeds in the menu bar" = "在菜单栏显示速度";
+"Show active torrents only" = "仅显示活动中的种子";
 
 /* Language switcher (R9 in-app revision) */
 "Follow System" = "跟随系统";

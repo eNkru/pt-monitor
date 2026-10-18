@@ -18,6 +18,7 @@
 "%lldm %02llds" = "%lldm %02llds";
 "%llds" = "%llds";
 "No torrents." = "No torrents.";
+"No active torrents." = "No active torrents.";
 "Connecting…" = "Connecting…";
 "Disabled" = "Disabled";
 "%lld more torrents" = "%lld more torrents";
@@ -77,6 +78,7 @@
 "No servers configured. Add a qBittorrent or Transmission server to start monitoring." = "No servers configured. Add a qBittorrent or Transmission server to start monitoring.";
 "Poll every %lld seconds" = "Poll every %lld seconds";
 "Show speeds in the menu bar" = "Show speeds in the menu bar";
+"Show active torrents only" = "Show active torrents only";
 
 /* Language switcher (R9 in-app revision) */
 "Follow System" = "Follow System";

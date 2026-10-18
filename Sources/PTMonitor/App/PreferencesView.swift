@@ -50,6 +50,8 @@ struct PreferencesView: View {
 
             Toggle("Show speeds in the menu bar", isOn: showSpeedsBinding)
 
+            Toggle("Show active torrents only", isOn: showActiveTorrentsOnlyBinding)
+
             Divider()
 
             LanguageSection(settings: settings)
@@ -119,6 +121,15 @@ struct PreferencesView: View {
         Binding(
             get: { settings.showSpeedsInMenuBar },
             set: { settings.setShowSpeedsInMenuBar($0) }
+        )
+    }
+
+    /// Display-only: mirrors `showSpeedsBinding` and deliberately does not call
+    /// `onChange()` — filtering the list never rebuilds the pollers.
+    private var showActiveTorrentsOnlyBinding: Binding<Bool> {
+        Binding(
+            get: { settings.showActiveTorrentsOnly },
+            set: { settings.setShowActiveTorrentsOnly($0) }
         )
     }
 }

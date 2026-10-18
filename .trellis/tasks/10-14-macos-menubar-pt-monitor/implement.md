@@ -327,3 +327,18 @@ Gates after the fix: clean build (0 warnings), `--selftest` 113 → **121 checks
 - Spec: `.trellis/spec/macos/app-conventions.md` §4.2/§4.3 (auth split +
   task-level challenge hook) and §7 (hosting-view lifecycle, bounded lazy
   list). PRD AC16 carries the 100-row cap revision note.
+
+## Active-torrents-only filter round (2026-10-18)
+
+- New persisted global preference `showActiveTorrentsOnly` (default off) +
+  Preferences toggle: the dropdown's per-server rows filter to torrents with
+  down/up speed > 0 (`TorrentSummary.isActive`, pure, `--selftest`-covered).
+  Filter applies **before** the 100-row cap; the "+ N more torrents" footnote
+  counts the filtered array; filter-on + non-empty library + zero active shows
+  the localized "No active torrents." note. Display-only — never rebuilds
+  pollers. Aggregate grid's server-reported counts unaffected.
+- Gates: `swift build` 0 warnings, `--selftest` **191 checks** (+3 `isActive`,
+  +3 persistence round-trip added by `trellis-check`), parity 66/66 keys,
+  bundle green, forced zh-Hans selftest green, codesign valid.
+- Spec: app-conventions §6 (key list) and §7 (filter-before-cap contract);
+  PRD AC16 revision note extended.

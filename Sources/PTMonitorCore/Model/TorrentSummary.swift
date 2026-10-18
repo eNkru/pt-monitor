@@ -81,4 +81,8 @@ extension TorrentSummary {
         guard let raw, raw.isFinite else { return 0 }
         return min(max(raw, 0), 1)
     }
+
+    /// Whether this torrent currently transfers data in either direction.
+    /// Pure so `--selftest` can check it; drives the "active only" list filter.
+    public var isActive: Bool { downSpeed > 0 || upSpeed > 0 }
 }

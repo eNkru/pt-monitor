@@ -177,7 +177,9 @@ proactive Basic-auth header). Do not delete the task-level forwarder as
 ## 6. Persistence
 
 - `UserDefaults` (via `SettingsStore` only): `servers` as JSON `[ServerConfig]`,
-  `pollInterval` (default 2, clamp 1–60), `showSpeedsInMenuBar`.
+  `pollInterval` (default 2, clamp 1–60), `showSpeedsInMenuBar`,
+  `showActiveTorrentsOnly` (default `false`, display-only — changing it never
+  rebuilds pollers).
 - Passwords live **only** in the Keychain (`KeychainStore`,
   `kSecClassGenericPassword`, `service = <bundle-id>.server`,
   `account = <server UUID>`). Write only when non-empty; delete on clear or
@@ -236,6 +238,12 @@ proactive Basic-auth header). Do not delete the task-level forwarder as
   `PanelView.maxVisibleTorrentsPerServer` (100) rows per server in the
   clients' fixed sort order, followed by a localized "+ N more torrents"
   footnote (plain text — no "show all" action, R8).
+- **Opt-in active-only filter** (`showActiveTorrentsOnly`): rows are filtered
+  to `TorrentSummary.isActive` (down/up speed > 0, pure + `--selftest`-covered)
+  **before** the 100-row cap; the footnote counts the filtered array. With the
+  filter on, a non-empty library with nothing transferring shows the localized
+  "No active torrents." note (vs "No torrents." for an actually empty
+  library). The aggregate grid's server-reported counts are unaffected.
 - **Read-only**: no pause/resume/add/remove. No control endpoints; torrent
   rows and sections carry no actions (R8, AC18). Only footer rows act.
 

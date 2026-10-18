@@ -22,6 +22,7 @@ public final class SettingsStore: ObservableObject {
         public static let servers = "servers"
         public static let pollInterval = "pollInterval"
         public static let showSpeedsInMenuBar = "showSpeedsInMenuBar"
+        public static let showActiveTorrentsOnly = "showActiveTorrentsOnly"
         public static let appLanguage = "appLanguage"
         /// The per-app language override; the only key read at launch, so a
         /// change only takes effect after relaunch. `kCFPreferencesAnyApplication`
@@ -46,6 +47,11 @@ public final class SettingsStore: ObservableObject {
     /// Whether the menu bar shows live speed text alongside the icon (R5.3).
     @Published public private(set) var showSpeedsInMenuBar: Bool
 
+    /// Whether the dropdown's torrent list shows only torrents that currently
+    /// transfer data in either direction (down/up speed > 0). Display-only:
+    /// changing it never rebuilds the pollers.
+    @Published public private(set) var showActiveTorrentsOnly: Bool
+
     /// In-app language choice (R9 switcher), applied to `AppleLanguages` in
     /// `setAppLanguage` so the two can never drift apart.
     @Published public private(set) var appLanguage: AppLanguage
@@ -55,6 +61,7 @@ public final class SettingsStore: ObservableObject {
         self.servers = Self.loadServers(from: defaults)
         self.pollInterval = Self.loadPollInterval(from: defaults)
         self.showSpeedsInMenuBar = Self.loadShowSpeeds(from: defaults)
+        self.showActiveTorrentsOnly = Self.loadShowActiveTorrentsOnly(from: defaults)
         self.appLanguage = Self.loadAppLanguage(from: defaults)
     }
 
@@ -119,6 +126,15 @@ public final class SettingsStore: ObservableObject {
         defaults.set(isEnabled, forKey: Key.showSpeedsInMenuBar)
     }
 
+    /// Filters the dropdown's torrent list down to torrents with live traffic.
+    /// Display-only (R12): the pollers and snapshots are untouched, so this
+    /// never needs to rebuild anything.
+    public func setShowActiveTorrentsOnly(_ isEnabled: Bool) {
+        guard isEnabled != showActiveTorrentsOnly else { return }
+        showActiveTorrentsOnly = isEnabled
+        defaults.set(isEnabled, forKey: Key.showActiveTorrentsOnly)
+    }
+
     /// Sets the UI language and applies the matching `AppleLanguages`
     /// override in the same call, so the persisted preference and what the
     /// next launch actually reads cannot drift apart. `AppleLanguages` is
@@ -174,6 +190,15 @@ public final class SettingsStore: ObservableObject {
             return true
         }
         return defaults.bool(forKey: Key.showSpeedsInMenuBar)
+    }
+
+    /// Defaults to `false`: the full list is the established behaviour, so the
+    /// filter is opt-in.
+    private static func loadShowActiveTorrentsOnly(from defaults: UserDefaults) -> Bool {
+        guard defaults.object(forKey: Key.showActiveTorrentsOnly) != nil else {
+            return false
+        }
+        return defaults.bool(forKey: Key.showActiveTorrentsOnly)
     }
 
     /// One-time migration read: `appLanguage` unset but a per-app

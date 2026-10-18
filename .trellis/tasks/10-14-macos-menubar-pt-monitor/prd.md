@@ -141,6 +141,10 @@ Verified on the dev machine (macOS 12.7.6) unless the criterion names the NAS.
   the remaining rows. Unbounded row materialisation plus a hidden-panel
   layout loop pinned the CPU at 60–99% with the dropdown closed on a
   multi-thousand-torrent library (see implement.md, panel performance round).
+  *Revision (2026-10-18, active-only filter):* a persisted global preference
+  `showActiveTorrentsOnly` (Preferences toggle, default off) filters each
+  server's rows to torrents with down/up speed > 0 before the 100-row cap;
+  a non-empty library with nothing transferring shows "No active torrents."
 - **AC17** `--selftest` covers the torrent-list normalisation: qBittorrent
   `state` strings and Transmission `status` integers map to the normalised
   `TorrentState`, progress is in 0…1, and the eta sentinels (qBittorrent
