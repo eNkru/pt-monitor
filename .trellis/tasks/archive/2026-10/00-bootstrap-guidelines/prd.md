@@ -7,7 +7,32 @@ The developer just ran `trellis init` on this project for the first time.
 exists under `.trellis/tasks/`. When they want to work on it, they should start
 this task from a session that provides Trellis session identity.
 
-**Your job**: help them populate `.trellis/spec/` with the team's real
+> **RESOLVED 2026-10-18 — closed with a scope correction, not by filling
+> `backend/` and `frontend/`.** This repo has no backend/frontend split: it is
+> one Swift package (`PTMonitorCore` library + thin `PTMonitor` AppKit/SwiftUI
+> executable). The instructions below target a fullstack template from
+> `trellis init`, so the two empty template layers were **deleted** and the
+> real, code-backed conventions live in **`.trellis/spec/macos/`**
+> (`app-conventions.md`, `build-and-run.md`), written during and verified
+> against the `10-14-macos-menubar-pt-monitor` task. That is the layer every
+> task's jsonl manifest should reference. Recoverable from git if this repo
+> ever grows a web or server component.
+
+## Status (final)
+
+- [x] Fill the project's real conventions — done in `.trellis/spec/macos/`
+      (app-conventions.md: module boundaries, domain-model ownership, client
+      contracts, polling, persistence, menu bar + panel rules;
+      build-and-run.md: CLT build/verify commands, `--selftest` contract,
+      bundle assembly).
+- [x] Code examples — the macos specs cite real file paths and real code
+      shapes rather than hypothetical ones.
+- [—] "Backend guidelines" / "Frontend guidelines" — **not applicable**; those
+      template directories were removed. See the resolution note above.
+
+---
+
+**Your job (historical, superseded)**: help them populate `.trellis/spec/` with the team's real
 coding conventions. Every future AI session — this project's
 `trellis-implement` and `trellis-check` sub-agents — auto-loads spec files
 listed in per-task jsonl manifests. Empty spec = sub-agents write generic

@@ -3,7 +3,7 @@
   "name": "00-bootstrap-guidelines",
   "title": "Bootstrap Guidelines",
   "description": "Fill in project development guidelines for AI agents",
-  "status": "in_progress",
+  "status": "completed",
   "dev_type": "docs",
   "scope": null,
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "Howard J",
   "assignee": "Howard J",
   "createdAt": "2026-10-14",
-  "completedAt": null,
+  "completedAt": "2026-10-18",
   "branch": null,
   "base_branch": null,
   "worktree_path": null,
@@ -21,9 +21,8 @@
   "children": [],
   "parent": null,
   "relatedFiles": [
-    ".trellis/spec/backend/",
-    ".trellis/spec/frontend/"
+    ".trellis/spec/macos/"
   ],
-  "notes": "First-time setup task created by trellis init (fullstack project)",
+  "notes": "Closed 2026-10-18: repo is a single Swift package with no backend/frontend split. The generated backend/frontend spec templates were deleted; real conventions live in .trellis/spec/macos/ (written during 10-14-macos-menubar-pt-monitor).",
   "meta": {}
 }

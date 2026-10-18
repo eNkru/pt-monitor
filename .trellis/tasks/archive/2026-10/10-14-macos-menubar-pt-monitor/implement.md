@@ -362,3 +362,30 @@ Gates after the fix: clean build (0 warnings), `--selftest` 113 → **121 checks
   `swift build` 0 warnings, `--selftest` 191 checks, `./scripts/build-app.sh`
   green. Manual check for the user: open the panel on a transferring server and
   confirm the window no longer drifts while speeds update.
+
+## Completion audit (2026-10-18)
+
+Task closed at the developer's request. Recorded here so the archive is not
+overstating what was checked.
+
+**Machine-verified on this repo (green at close):**
+- AC1 `swift build` (+ `-c release` inside `build-app.sh`) with CLT only — 0 warnings
+- AC3 / AC14 / AC17 `swift run PTMonitor --selftest` — 191 checks passed
+- AC10/AC11/AC12 formatter + settings behaviour (via selftest/persistence checks)
+- AC13 error paths — `--probe` exits 1 with a readable message, no GUI
+- AC2 (non-visual part) — app launches as an `.accessory` agent
+- AC9 (design part) — passwords live in Keychain, never in `UserDefaults`
+- Localization parity 66/66 keys, forced `zh-Hans` selftest green
+- Bundle assembly + ad-hoc codesign valid
+
+**Verified in live use by the developer (no per-criterion pass recorded):**
+- AC2 visual, AC4, AC5–AC8, AC10 live numbers, AC11, AC15, AC16 (styled panel,
+  live torrent rows against the real multi-thousand-torrent library), AC18
+- Basis: multi-day use against the real NAS, plus the performance round
+  (measured against the live 1500 qB + 800 TR domain), the Transmission auth
+  fix, the threshold-filter round, and the panel-anchor drift report/fix — each
+  of those could only have been observed with the app connected and updating.
+
+**Not recorded anywhere:** a per-AC checklist run of AC4–AC8/AC13-happy-path
+against the NAS. If a regression appears there, reopen from the archive rather
+than assuming the area was clean.
