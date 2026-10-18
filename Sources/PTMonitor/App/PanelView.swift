@@ -282,23 +282,28 @@ struct PanelView: View {
     // MARK: - Torrent rows
 
     private func row(_ torrent: TorrentSummary) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: Self.symbol(for: torrent.state))
-                .foregroundColor(Self.color(for: torrent.state))
-                .frame(width: 14)
-            Text(torrent.name)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 8)
-            PillMeter(progress: torrent.progress)
-            Text(ByteRateFormatter.speedText(down: torrent.downSpeed, up: torrent.upSpeed))
-                .font(.system(size: NSFont.systemFontSize, design: .monospaced))
-                .foregroundColor(.secondary)
-                .frame(width: 96, alignment: .trailing)
-            Text(Self.etaText(torrent.etaSeconds))
-                .font(.system(size: NSFont.systemFontSize, design: .monospaced))
-                .foregroundColor(.secondary)
-                .frame(width: 52, alignment: .trailing)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                Image(systemName: Self.symbol(for: torrent.state))
+                    .foregroundColor(Self.color(for: torrent.state))
+                    .frame(width: 14)
+                Text(torrent.name)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            // Detail line under the name, aligned with it (icon 14pt + 8pt gap).
+            HStack(spacing: 8) {
+                PillMeter(progress: torrent.progress)
+                Text(ByteRateFormatter.speedText(down: torrent.downSpeed, up: torrent.upSpeed))
+                    .font(.system(size: NSFont.systemFontSize, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .frame(width: 96, alignment: .trailing)
+                Text(Self.etaText(torrent.etaSeconds))
+                    .font(.system(size: NSFont.systemFontSize, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .frame(width: 52, alignment: .trailing)
+            }
+            .padding(.leading, 22)
         }
         .padding(.vertical, 3)
     }
