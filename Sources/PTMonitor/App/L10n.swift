@@ -45,6 +45,22 @@ enum L10n {
 
     // MARK: - Per-torrent rows
 
+    /// The short state word a torrent row shows when it has no speed or eta to
+    /// report. Localized so a zh-Hans user does not see an English word on an
+    /// otherwise translated panel; the key is the English text (R9).
+    static func stateWord(_ state: TorrentState) -> String {
+        switch state {
+        case .downloading: return s("Downloading")
+        case .seeding: return s("Seeding")
+        case .stalled: return s("Stalled")
+        case .queued: return s("Queued")
+        case .checking: return s("Checking")
+        case .paused: return s("Paused")
+        case .error: return s("Error")
+        case .other: return s("Unknown")
+        }
+    }
+
     /// eta: `1h 23m` / `4m 05s` / `12s`; nil → an em dash (AC17).
     static func eta(_ seconds: Int64?) -> String {
         guard let seconds, seconds >= 0 else { return "—" }
