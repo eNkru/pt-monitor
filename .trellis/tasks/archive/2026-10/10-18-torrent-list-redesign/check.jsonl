@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/macos/app-conventions.md", "reason": "Checklist source: read-only rows (R8/AC7), L10n key-is-English rule (AC6), LazyVStack + row-cap performance contract, selftest requirements for pure logic (AC5)."}
+{"file": ".trellis/spec/macos/build-and-run.md", "reason": "Verification commands: rm -rf .build && swift build warning-free gate, --selftest exit contract, build-app.sh assembly — the check phase must run exactly these."}
