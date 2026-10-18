@@ -135,6 +135,12 @@ Verified on the dev machine (macOS 12.7.6) unless the criterion names the NAS.
   (name, state, progress, ↓/↑ speed); offline or failed servers show a
   per-server note instead of rows; the panel is fresh on every open and rows
   update live while it stays open. (R12, Q5)
+  *Revision (2026-10-18, performance):* "one row per torrent" holds up to
+  `PanelView.maxVisibleTorrentsPerServer` (100) rows per server, in the fixed
+  sort order; beyond that a localized "+ N more torrents" footnote replaces
+  the remaining rows. Unbounded row materialisation plus a hidden-panel
+  layout loop pinned the CPU at 60–99% with the dropdown closed on a
+  multi-thousand-torrent library (see implement.md, panel performance round).
 - **AC17** `--selftest` covers the torrent-list normalisation: qBittorrent
   `state` strings and Transmission `status` integers map to the normalised
   `TorrentState`, progress is in 0…1, and the eta sentinels (qBittorrent

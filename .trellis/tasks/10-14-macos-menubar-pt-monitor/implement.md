@@ -298,3 +298,32 @@ mislabel. Root cause and fix:
 Gates after the fix: clean build (0 warnings), `--selftest` 113 → **121 checks**,
 `./scripts/build-app.sh` green, and the stub round-trip proves login → cookie →
 `maindata` 200 → JSON, plus "auth failed" ×5 then the real `banned` branch.
+
+## Transmission auth fix + panel performance round (2026-10-18)
+
+- **Transmission proactive Basic auth.** After the CLT/macOS 26 round the
+  session-level `didReceive`-challenge callback stopped firing for
+  `URLSession.data(for:)`, so Transmission polling failed as if credentials
+  were wrong. `TransmissionClient.rpc` now sets the `Authorization: Basic`
+  header proactively (built once per call, set on every handshake attempt);
+  `TransportSessionDelegate` additionally implements the task-level challenge
+  hook forwarding to the session-level one so the self-signed-TLS opt-in keeps
+  working (task-level wins whenever both exist). `401 → .auth` unchanged.
+- **Panel performance (root-caused empirically).** Symptom: after TR started
+  reporting, 60–99% CPU / up to 1 GB RSS with the dropdown closed; opening it
+  was nearly unresponsive. Diagnosis with `sample` + a stub-server harness
+  (`/tmp/pt-test/stub-*.py`, rows scaled 8→2300): (1) the panel's torrent list
+  was an eager `VStack` — every row of a multi-thousand-torrent library was
+  materialised; (2) the hidden panel's `NSHostingView` kept running a layout
+  feedback loop at display-frame rate (subview-add storm every frame) even
+  while ordered out. Row count × frame rate = saturation.
+  Fix: `LazyVStack`, per-server row cap 100 + localized "+ N more torrents"
+  footnote, hosting view built fresh per `show()` and destroyed on `hide()`.
+  Measured: 1500 qB + 800 TR stub rows, panel closed: 76% → 3.7% CPU,
+  586 MB → 49 MB; 8+8 rows: 0%. User's live domain restored after testing.
+- Gates: `swift build` 0 warnings, `--selftest` 185 checks, localization
+  parity 64/64 keys, `./scripts/build-app.sh` green, codesign valid.
+  `trellis-check` pass (one fix: the task-level challenge forwarder above).
+- Spec: `.trellis/spec/macos/app-conventions.md` §4.2/§4.3 (auth split +
+  task-level challenge hook) and §7 (hosting-view lifecycle, bounded lazy
+  list). PRD AC16 carries the 100-row cap revision note.

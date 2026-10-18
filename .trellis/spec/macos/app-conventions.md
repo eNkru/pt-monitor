@@ -130,12 +130,30 @@ protocol TorrentClient: Sendable {
   an explicit `fields` array). `free-space` runs on a **separate ~30 s cadence**
   using `download-dir` from `session-get`; it is optional and must never stall
   the speed poll.
+- **Requests carry a proactive `Authorization: Basic …` header** (set on every
+  attempt inside the 409-handshake closure; credentials never logged).
+  Reason: with the async `URLSession.data(for:)` API the session-level
+  `didReceive`-challenge callback is not reliably invoked on recent macOS
+  (reproduced on macOS 26 — the Basic-auth challenge never fired). `401` still
+  maps to `.auth` exactly as before; the header only changes *how* credentials
+  reach the server, not the failure semantics.
 
 ### 4.3 Transport
 
 One `HTTPTransport` owns timeouts (5 s request / 15 s resource),
 `waitsForConnectivity = false`, the ephemeral cookie storage, the opt-in
-self-signed-trust delegate, Basic auth, and the 409 retry hook.
+self-signed-trust delegate, and the 409 retry hook.
+
+Auth is split by client: qBittorrent uses its form login (the `SID` cookie);
+Transmission sets the `Authorization: Basic` header itself (§4.2). The
+delegate challenge path (`TransportSessionDelegate`) implements **both** the
+session-level and the task-level `didReceive` hooks — when both exist,
+URLSession calls only the task-level one, so the task-level method forwards to
+the single session-level implementation. That keeps the self-signed TLS
+opt-in working on macOS versions where the session-level callback is not
+reliably invoked for the async data-task API (the same quirk that forced the
+proactive Basic-auth header). Do not delete the task-level forwarder as
+"redundant" — it is the load-bearing one on current macOS.
 
 ## 5. Polling and state
 
@@ -205,6 +223,19 @@ self-signed-trust delegate, Basic auth, and the 409 retry hook.
     R6; empty state with "Add Server…", AC4), footer action rows (Refresh
     Now / Preferences… / Quit). Key equivalents (⌘R/⌘Q) are dropped — a
     borderless panel has no menu key-equivalent machinery.
+- **Hosting-view lifecycle (performance contract).** The panel's
+  `NSHostingView` is built **fresh on every `show()`** and destroyed on every
+  `hide()` (`panel.contentView = nil`, reference dropped). Never keep a
+  hosting view attached to an ordered-out panel: it keeps running its layout
+  feedback loop at display-frame rate even while hidden, which — combined
+  with an eager list — pinned the main thread at 60–99% CPU with the dropdown
+  closed (fixed 2026-10-18; 76% → 3.7% at 1500+800 stub rows). Scroll
+  position resets between opens by design ("fresh on every open").
+- **Torrent list rendering is bounded and lazy**: `LazyVStack` (never a plain
+  `VStack` — it materialises every row) inside the `ScrollView`, and at most
+  `PanelView.maxVisibleTorrentsPerServer` (100) rows per server in the
+  clients' fixed sort order, followed by a localized "+ N more torrents"
+  footnote (plain text — no "show all" action, R8).
 - **Read-only**: no pause/resume/add/remove. No control endpoints; torrent
   rows and sections carry no actions (R8, AC18). Only footer rows act.
 
