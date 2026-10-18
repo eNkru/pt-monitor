@@ -166,7 +166,7 @@ public final class HTTPTransport: @unchecked Sendable {
 ///
 /// Both settings are immutable for the lifetime of the transport, so the class
 /// is safe to hand to `URLSession` from any thread.
-final class TransportSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
+final class TransportSessionDelegate: NSObject, URLSessionDelegate, URLSessionDataDelegate, URLSessionTaskDelegate, @unchecked Sendable {
     private let allowInsecureTLS: Bool
     private let credentials: (username: String, password: String)?
 
@@ -205,6 +205,24 @@ final class TransportSessionDelegate: NSObject, URLSessionDelegate, @unchecked S
         default:
             completionHandler(.performDefaultHandling, nil)
         }
+    }
+
+    /// Task-level challenge hook. With the async `URLSession.data(for:)` API
+    /// the session-level callback above is not reliably invoked on recent
+    /// macOS (seen on macOS 26: Transmission's Basic-auth challenge never
+    /// fired, which is why `TransmissionClient` sets the `Authorization`
+    /// header proactively). Server-trust challenges — the self-signed TLS
+    /// opt-in — have no header workaround, so they are handled here. When
+    /// both levels are implemented, URLSession calls only the task-level
+    /// method; it forwards to the single implementation above, so behaviour
+    /// is identical on every OS.
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        urlSession(session, didReceive: challenge, completionHandler: completionHandler)
     }
 }
 

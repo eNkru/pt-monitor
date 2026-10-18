@@ -157,10 +157,23 @@ public actor TransmissionClient: TorrentClient {
 
         let url = transport.url(path: "/transmission/rpc")
         let transport = self.transport
+        // Transmission's RPC expects HTTP Basic auth. URLSession normally
+        // supplies it through the didReceive-challenge delegate, but that
+        // callback is not reliably invoked (reproduced on macOS 26 against a
+        // stub server, and in the editor's Test Connection flow), so the
+        // header is set proactively — matching curl / transmission-remote
+        // behaviour. Wrong credentials still surface as `.auth` below (R6).
+        let authorization: String? =
+            (!config.username.isEmpty || !password.isEmpty)
+            ? "Basic " + Data("\(config.username):\(password)".utf8).base64EncodedString()
+            : nil
         let outcome = try await SessionIdHandshake.run(initialSessionId: sessionId) { currentSessionId in
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            if let authorization {
+                request.setValue(authorization, forHTTPHeaderField: "Authorization")
+            }
             if let currentSessionId {
                 request.setValue(currentSessionId, forHTTPHeaderField: SessionIdHandshake.headerField)
             }
