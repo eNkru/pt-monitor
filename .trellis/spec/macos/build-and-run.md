@@ -20,6 +20,9 @@ open build/PTMonitor.app             # run the menu bar agent (manual)
 build/PTMonitor.app/Contents/MacOS/PTMonitor \
   --probe <qbittorrent|transmission> --host <h> --port <p> \
   [--user u] [--pass p] [--https] [--insecure]
+
+# debug-only: render the dropdown panel from fixtures, light + dark PNGs:
+swift run PTMonitor --preview-panel /tmp/panel.png   # also writes /tmp/panel-dark.png
 ```
 
 `swift test` is **forbidden** — XCTest is not shipped with Command Line Tools
@@ -125,6 +128,11 @@ Verified matrix:
 - Network, Keychain, and GUI behaviour is **not** covered by `--selftest`;
   cover it with the `--probe` mode against a real server (or the stub in §7) and
   the manual AC checklist.
+- **Panel appearance** is likewise not assertable in-binary: render it with
+  `--preview-panel <out.png>` (fixture torrents in every normalised state, one
+  name long enough to truncate) and look at the PNGs. The mode builds both
+  stores on a throwaway `UserDefaults` suite and never starts a poller, so it
+  touches no network, no Keychain, and none of the user's real settings.
 - **Any change to `HTTPTransport` needs a run against the stub**, not just a
   green `--selftest`. Cookie/session behaviour lives entirely inside URLSession
   and is invisible to network-free checks — that is exactly how the
