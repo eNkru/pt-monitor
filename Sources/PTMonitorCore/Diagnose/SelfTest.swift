@@ -40,6 +40,7 @@ public enum SelfTest {
         do {
             try formatterChecks(&passed)
             try clientChecks(&passed)
+            try rowChecks(&passed)
             try storeChecks(&passed)
             try transportChecks(&passed)
             try validationChecks(&passed)
@@ -622,6 +623,90 @@ public enum SelfTest {
 
     private static func describeOptional<T>(_ value: T?) -> String {
         value.map { "\($0)" } ?? "nil"
+    }
+
+    // MARK: - Torrent row presentation checks (torrent list redesign)
+
+    /// The row detail line and the percentage next to the progress bar. Both are
+    /// pure, string-free decisions, so they are checked here rather than by
+    /// eyeballing the panel (AC5). The *text* is produced by `L10n` in the app
+    /// target and is deliberately not asserted (a check must never depend on a
+    /// localizable string).
+    private static func rowChecks(_ passed: inout Int) throws {
+        func expect<T: Equatable>(_ name: String, _ actual: @autoclosure () -> T, _ expected: T) throws {
+            let value = actual()
+            guard value == expected else {
+                throw Failure(message: "\(name): expected \(expected), got \(value)")
+            }
+            passed += 1
+        }
+
+        // Downloading: rate + eta, in that order.
+        try expect(
+            "row: downloading shows rate then eta",
+            TorrentSummary.infoSegments(state: .downloading, down: 1_258_291, up: 0, etaSeconds: 1_800),
+            [.down(1_258_291), .eta(1_800)]
+        )
+
+        // A torrent can seed while it downloads; that upload rate is real
+        // traffic and must not be dropped from the row.
+        try expect(
+            "row: downloading keeps its upload rate",
+            TorrentSummary.infoSegments(state: .downloading, down: 1_258_291, up: 348_160, etaSeconds: 1_800),
+            [.down(1_258_291), .up(348_160), .eta(1_800)]
+        )
+        try expect(
+            "row: uploading while downloading without an eta",
+            TorrentSummary.infoSegments(state: .downloading, down: 512_000, up: 348_160, etaSeconds: nil),
+            [.down(512_000), .up(348_160)]
+        )
+
+        // A zero rate is dropped instead of rendering a bare arrow (AC3).
+        try expect(
+            "row: downloading without speed shows only eta",
+            TorrentSummary.infoSegments(state: .downloading, down: 0, up: 0, etaSeconds: 600),
+            [.eta(600)]
+        )
+        try expect(
+            "row: seeding shows upload rate only",
+            TorrentSummary.infoSegments(state: .seeding, down: 0, up: 348_160, etaSeconds: 1_800),
+            [.up(348_160)]
+        )
+        try expect(
+            "row: seeding without upload speed falls back to the word",
+            TorrentSummary.infoSegments(state: .seeding, down: 1_258_291, up: 0, etaSeconds: nil),
+            [.stateWord(.seeding)]
+        )
+
+        // A downloading row with neither speed nor eta is still never blank.
+        try expect(
+            "row: downloading with nothing to report falls back to the word",
+            TorrentSummary.infoSegments(state: .downloading, down: 0, up: 0, etaSeconds: nil),
+            [.stateWord(.downloading)]
+        )
+        try expect(
+            "row: a negative eta is dropped, not rendered as an em dash",
+            TorrentSummary.infoSegments(state: .downloading, down: 0, up: 0, etaSeconds: -1),
+            [.stateWord(.downloading)]
+        )
+
+        // Every idle state carries its own word, and speeds never leak into it.
+        let idleStates: [TorrentState] = [.stalled, .queued, .checking, .paused, .error, .other]
+        for state in idleStates {
+            try expect(
+                "row: \(state.rawValue) shows only its word",
+                TorrentSummary.infoSegments(state: state, down: 1_258_291, up: 348_160, etaSeconds: 60),
+                [.stateWord(state)]
+            )
+        }
+
+        // Percentage text, including the clamp the bar also relies on.
+        try expect("percent: 0", TorrentSummary.percentText(0), "0%")
+        try expect("percent: 0.624", TorrentSummary.percentText(0.624), "62%")
+        try expect("percent: 0.995 rounds up", TorrentSummary.percentText(0.995), "100%")
+        try expect("percent: complete", TorrentSummary.percentText(1), "100%")
+        try expect("percent: over-range clamps", TorrentSummary.percentText(1.5), "100%")
+        try expect("percent: NaN clamps", TorrentSummary.percentText(Double.nan), "0%")
     }
 
     // MARK: - Store checks (steps 7–9)

@@ -16,6 +16,15 @@
 "%lldh %02lldm" = "%lld小时%02lld分";
 "%lldm %02llds" = "%lld分%02lld秒";
 "%llds" = "%lld秒";
+/* 种子状态词（详情行在无速度/无剩余时间时显示） */
+"Downloading" = "下载中";
+"Seeding" = "做种中";
+"Stalled" = "已停滞";
+"Queued" = "排队中";
+"Checking" = "校验中";
+"Paused" = "已暂停";
+"Error" = "错误";
+"Unknown" = "未知";
 "No torrents." = "暂无种子。";
 "No active torrents." = "没有活动中的种子。";
 "Connecting…" = "连接中…";

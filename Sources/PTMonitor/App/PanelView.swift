@@ -5,9 +5,10 @@ import PTMonitorCore
 /// floating panel (Q5, design §6.2).
 ///
 /// Layout, top to bottom: header ("PT Monitor" + relative freshness + server
-/// count), the aggregate number grid, per-server sections with torrent rows and
-/// pill progress meters, and the footer action rows (Refresh / Preferences /
-/// Quit). Everything except the footer is strictly observational (R8, AC18).
+/// count), the aggregate number grid, per-server sections with torrent rows
+/// (state dot, name, progress bar, detail line), and the footer action rows
+/// (Refresh / Preferences / Quit). Everything except the footer is strictly
+/// observational (R8, AC18).
 ///
 /// Adaptive light/dark: the fixed dark-mode values from the CodexBar mockup map
 /// onto semantic equivalents in light mode. Live numbers use monospaced digits
@@ -38,6 +39,10 @@ struct PanelView: View {
     /// materialising all of it is what pinned the CPU at 60–99% with the
     /// dropdown closed. Plain text, no "show all" action (R8).
     static let maxVisibleTorrentsPerServer = 100
+
+    /// Progress bar height. Thick enough to read at a glance (the old 4pt
+    /// pill meter was near-invisible); the bar spans the whole row width.
+    private static let progressBarHeight: CGFloat = 7
 
     // MARK: - Body
 
@@ -248,11 +253,10 @@ struct PanelView: View {
                     // render; the rest collapses into the footnote below
                     // (performance: see the constant's comment).
                     let visible = candidates.prefix(Self.maxVisibleTorrentsPerServer)
-                    ForEach(Array(visible.enumerated()), id: \.element.id) { index, torrent in
-                        if index > 0 {
-                            hairline
-                                .padding(.leading, 14)
-                        }
+                    // No hairline between rows: the rows' own vertical padding
+                    // carries the rhythm, and a rule on every row was visual
+                    // noise (design §separators).
+                    ForEach(Array(visible.enumerated()), id: \.element.id) { _, torrent in
                         row(torrent)
                     }
                     if candidates.count > visible.count {
@@ -309,51 +313,96 @@ struct PanelView: View {
 
     // MARK: - Torrent rows
 
+    /// One torrent, three layers (design §row):
+    ///
+    /// ```
+    ///  ● Name wraps onto a second line when it helps        62.4%
+    ///    ━━━━━━━━━━━━━━━━━━━━━━━━━━░░░░░░░░░░░░░  (7pt, full width)
+    ///    ↓ 1.2M · 30m
+    /// ```
+    ///
+    /// Which detail segments a row shows is decided by
+    /// `TorrentSummary.infoSegments` (pure, `--selftest`-covered); this view
+    /// only turns them into text. Rows carry no actions (R8).
     private func row(_ torrent: TorrentSummary) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 8) {
-                Image(systemName: Self.symbol(for: torrent.state))
-                    .foregroundColor(Self.color(for: torrent.state))
-                    .frame(width: 14)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: Self.layerSpacing) {
+                Circle()
+                    .fill(Self.color(for: torrent.state))
+                    .frame(width: Self.dotSize, height: Self.dotSize)
                 Text(torrent.name)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            // Detail line under the name, aligned with it (icon 14pt + 8pt gap).
             HStack(spacing: 8) {
-                PillMeter(progress: torrent.progress)
-                Text(ByteRateFormatter.speedText(down: torrent.downSpeed, up: torrent.upSpeed))
-                    .font(.system(size: NSFont.systemFontSize, design: .monospaced))
+                progressBar(torrent.progress, color: Self.color(for: torrent.state))
+                Text(TorrentSummary.percentText(torrent.progress))
+                    .font(.system(size: 10))
+                    .monospacedDigit()
                     .foregroundColor(.secondary)
-                    .frame(width: 96, alignment: .trailing)
-                Text(Self.etaText(torrent.etaSeconds))
-                    .font(.system(size: NSFont.systemFontSize, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .frame(width: 52, alignment: .trailing)
             }
-            .padding(.leading, 22)
+            Text(Self.infoText(torrent))
+                .font(.system(size: 10.5))
+                .monospacedDigit()
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
-        .padding(.vertical, 3)
+        // All three layers share the name's left edge (past the status dot),
+        // so the row reads as one block.
+        .padding(.leading, Self.dotSize + Self.layerSpacing)
+        .padding(.vertical, 5)
     }
 
-    // MARK: - Presentation helpers (pure; behaviour carried over verbatim
-    // from the embedded list, so nothing observable changes)
+    /// Status dot diameter; also the name's baseline offset anchor.
+    private static let dotSize: CGFloat = 6
+    /// Gap between the status dot and the name.
+    private static let layerSpacing: CGFloat = 6
 
-    /// SF Symbol per normalised state. Only symbols available on macOS 12.
-    static func symbol(for state: TorrentState) -> String {
-        switch state {
-        case .downloading: return "arrow.down.circle.fill"
-        case .seeding: return "arrow.up.circle.fill"
-        case .stalled: return "hourglass"
-        case .queued: return "clock"
-        case .checking: return "arrow.triangle.2.circlepath"
-        case .paused: return "pause.circle"
-        case .error: return "exclamationmark.triangle.fill"
-        case .other: return "questionmark.circle"
+    /// Full-row progress bar: a capsule track at 15% of the state colour with
+    /// the fill scaled from the leading edge. Scaling instead of measuring
+    /// keeps this layout-free (no `GeometryReader` in every row), and clipping
+    /// to the capsule keeps the fill's ends as round as the track's.
+    private func progressBar(_ progress: Double, color: Color) -> some View {
+        Capsule()
+            .fill(color.opacity(0.15))
+            .frame(height: Self.progressBarHeight)
+            .overlay {
+                Capsule()
+                    .fill(color)
+                    .scaleEffect(x: TorrentSummary.clampedProgress(progress), anchor: .leading)
+            }
+            .clipShape(Capsule())
+    }
+
+    /// The row's detail line, e.g. `↓ 1.2M · 30m` or `Seeding`.
+    private static func infoText(_ torrent: TorrentSummary) -> String {
+        TorrentSummary.infoSegments(
+            state: torrent.state,
+            down: torrent.downSpeed,
+            up: torrent.upSpeed,
+            etaSeconds: torrent.etaSeconds
+        )
+        .map(text(for:))
+        .joined(separator: " · ")
+    }
+
+    /// Localized text for one detail segment.
+    private static func text(for segment: TorrentRowInfoSegment) -> String {
+        switch segment {
+        case .down(let rate): return "\(ByteRateFormatter.downArrow) \(ByteRateFormatter.rate(rate))"
+        case .up(let rate): return "\(ByteRateFormatter.upArrow) \(ByteRateFormatter.rate(rate))"
+        case .eta(let seconds): return L10n.eta(seconds)
+        case .stateWord(let state): return L10n.stateWord(state)
         }
     }
 
-    /// Semantic colour per normalised state.
+    // MARK: - Presentation helpers
+
+    /// Semantic colour per normalised state — the one presentation mapping the
+    /// redesign kept verbatim; the dot and the progress bar both read from it.
     static func color(for state: TorrentState) -> Color {
         switch state {
         case .downloading: return .blue
@@ -364,12 +413,6 @@ struct PanelView: View {
         case .error: return .red
         case .other: return .secondary
         }
-    }
-
-    /// `nil` eta renders as an em dash, never a bogus number (AC17).
-    /// Localized unit formats; English falls back via the key.
-    static func etaText(_ seconds: Int64?) -> String {
-        L10n.eta(seconds)
     }
 
     // MARK: - Footer action rows
@@ -404,33 +447,6 @@ struct PanelView: View {
         .frame(maxWidth: .infinity)
         .padding(.top, 22)
         .padding(.bottom, 14)
-    }
-}
-
-// MARK: -
-
-/// Pill-shaped progress meter (CodexBar's usage-meter shape): capsule track at
-/// ~10% fill opacity, capsule fill in the teal accent.
-private struct PillMeter: View {
-    /// Teal accent from the CodexBar mockup.
-    private static let accent = Color(red: 0x4F / 255.0, green: 0xB6 / 255.0, blue: 0xC3 / 255.0)
-
-    private static let trackWidth: CGFloat = 90
-    private static let meterHeight: CGFloat = 4
-
-    /// 0…1; clamped so a bogus server value cannot blow up the layout.
-    let progress: Double
-
-    var body: some View {
-        let fraction = min(max(progress, 0), 1)
-        return ZStack(alignment: .leading) {
-            Capsule()
-                .fill(Self.accent.opacity(0.10))
-            Capsule()
-                .fill(Self.accent)
-                .frame(width: Self.trackWidth * fraction)
-        }
-        .frame(width: Self.trackWidth, height: Self.meterHeight)
     }
 }
 

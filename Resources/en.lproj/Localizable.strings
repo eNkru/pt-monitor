@@ -17,6 +17,14 @@
 "%lldh %02lldm" = "%lldh %02lldm";
 "%lldm %02llds" = "%lldm %02llds";
 "%llds" = "%llds";
+"Downloading" = "Downloading";
+"Seeding" = "Seeding";
+"Stalled" = "Stalled";
+"Queued" = "Queued";
+"Checking" = "Checking";
+"Paused" = "Paused";
+"Error" = "Error";
+"Unknown" = "Unknown";
 "No torrents." = "No torrents.";
 "No active torrents." = "No active torrents.";
 "Connecting…" = "Connecting…";

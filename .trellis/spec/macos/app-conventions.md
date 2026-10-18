@@ -162,6 +162,8 @@ proactive Basic-auth header). Do not delete the task-level forwarder as
   others (R6). Disabled servers are never contacted (R3/AC12).
 - Publish only when a status actually changes (ignore `fetchedAt`) to avoid
   menu-bar churn.
+- `MonitorStore.setPreviewStatuses(_:)` is the only way to publish without
+  polling, and it exists solely for `--preview-panel`; the app never calls it.
 - **Credential-failure backoff is mandatory.** qBittorrent bans an IP once
   `WebUI/MaxAuthenticationFailCount` logins have failed (default **5**) and
   counts every failed attempt until a login *succeeds* — the counter is **not
@@ -229,8 +231,9 @@ proactive Basic-auth header). Do not delete the task-level forwarder as
     removed on every `hide()` and in `deinit` (`MainActor.assumeIsolated`
     under Swift 6).
   - Content: header + freshness, aggregate 2-column grid, per-server sections
-    (torrent rows with pill progress meters; cause-specific failure hints,
-    R6; empty state with "Add Server…", AC4), footer action rows (Refresh
+    (torrent rows: state dot, 2-line name, full-width progress bar with a
+    monospaced percentage, one detail line; cause-specific failure hints, R6;
+    empty state with "Add Server…", AC4), footer action rows (Refresh
     Now / Preferences… / Quit). Key equivalents (⌘R/⌘Q) are dropped — a
     borderless panel has no menu key-equivalent machinery.
 - **Hosting-view lifecycle (performance contract).** The panel's
@@ -252,6 +255,22 @@ proactive Basic-auth header). Do not delete the task-level forwarder as
   filter on, a non-empty library with nothing transferring shows the localized
   "No active torrents." note (vs "No torrents." for an actually empty
   library). The aggregate grid's server-reported counts are unaffected.
+- **Torrent row anatomy** (redesigned 2026-10-18): a state dot + name
+  (`lineLimit(2)`, tail truncation), a full-row-width capsule progress bar
+  (7pt, filled with `PanelView.color(for:)`) with a monospaced percentage at
+  its right end, and one detail line. **Which** detail segments a row shows is
+  decided by `TorrentSummary.infoSegments(state:down:up:etaSeconds:)` — a pure
+  function returning `[TorrentRowInfoSegment]` (`down`/`up`/`eta`/`stateWord`)
+  with **no strings**, so `--selftest` can assert it; the app target turns
+  segments into localized text (`L10n.stateWord`, `L10n.eta`). Rules it
+  encodes: a zero rate is omitted rather than rendered as a bare arrow, **both**
+  directions are shown when both are moving (a torrent can seed while it
+  downloads — dropping its upload rate hides real traffic), and a row with
+  nothing else to say falls back to its state word — never an em dash.
+  Keep new row formatting decisions in that helper, not in the view, or they
+  become untestable. A full-width bar whose fill is proportional must not add a
+  `GeometryReader` per row; scale the fill from the leading edge and clip to the
+  capsule.
 - **Read-only**: no pause/resume/add/remove. No control endpoints; torrent
   rows and sections carry no actions (R8, AC18). Only footer rows act.
 

@@ -136,6 +136,13 @@ public final class MonitorStore: ObservableObject {
         }
     }
 
+    /// Debug-only hook: publishes statuses directly instead of polling, so
+    /// `--preview-panel` can render the panel from fixture data. Production
+    /// never calls it — polling stays the only writer of `statuses` in the app.
+    public func setPreviewStatuses(_ statuses: [UUID: ServerStatus]) {
+        self.statuses = statuses
+    }
+
     // MARK: - Menu bar helpers
 
     /// Aggregate down/up speed and active torrent count (design §6, AC10).
