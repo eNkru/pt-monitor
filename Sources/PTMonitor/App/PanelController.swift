@@ -32,6 +32,16 @@ final class PanelController: NSObject, NSWindowDelegate {
     /// Nil whenever the panel is hidden — see `installHostingView()`.
     private var hostingView: NSHostingView<PanelView>?
 
+    /// Screen frame of the status item, captured when the panel opened.
+    ///
+    /// The item is `NSStatusItem.variableLength`, so its width — and with it
+    /// `midX` — changes whenever the speed text changes width (`999 B/s` vs
+    /// `1.2M`, or the compact/icon-only degradation steps). Recomputing the
+    /// anchor on every poll publish slid the open panel sideways under the
+    /// user's cursor, so the anchor is taken once per presentation and only
+    /// the vertical extent is recomputed afterwards.
+    private var anchorFrame: NSRect?
+
     private var globalMonitor: Any?
     private var localMonitor: Any?
     private var keyMonitor: Any?
@@ -93,6 +103,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     func show() {
         installHostingView()
+        anchorFrame = statusItemScreenFrame()
         layout()
         installMonitors()
         panel.orderFrontRegardless() // never activates the app
@@ -112,6 +123,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         // resets between opens — acceptable.
         panel.contentView = nil
         hostingView = nil
+        anchorFrame = nil
         removeMonitors()
     }
 
@@ -137,16 +149,20 @@ final class PanelController: NSObject, NSWindowDelegate {
     /// height capped at 70% of the screen) and centers it under the status
     /// item, flipping above the item if it would run off the screen bottom
     /// (design §6.2).
+    ///
+    /// The horizontal anchor comes from `anchorFrame` (captured in `show()`)
+    /// so that content refreshes only ever grow/shrink the panel downwards:
+    /// the top edge stays pinned under the item and `midX` never follows the
+    /// status item's fluctuating width.
     private func layout() {
         guard let screen = button.window?.screen ?? NSScreen.main else { return }
-        guard let itemFrame = statusItemScreenFrame() else { return }
+        guard let itemFrame = anchorFrame ?? statusItemScreenFrame() else { return }
         guard let hostingView else { return }
 
         hostingView.frame.size.width = PanelView.preferredWidth
         let fitting = hostingView.fittingSize
         let maxHeight = screen.visibleFrame.height * 0.7
         let size = NSSize(width: PanelView.preferredWidth, height: min(max(fitting.height, 120), maxHeight))
-        hostingView.setFrameSize(size)
 
         let visible = screen.visibleFrame
         var origin = NSPoint(
@@ -159,13 +175,21 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
         origin.x = min(max(origin.x, visible.minX + 4), visible.maxX - size.width - 4)
 
-        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+        // `relayoutIfVisible()` runs on every poll publish (2 s by default).
+        // Skip the frame write when nothing moved, so an idle panel is not
+        // re-positioned — and not redisplayed — on every refresh.
+        let target = NSRect(origin: origin, size: size)
+        guard target != panel.frame else { return }
+
+        hostingView.setFrameSize(size)
+        panel.setFrame(target, display: true)
     }
 
-    /// Re-anchors the panel under the item when its content height changes
-    /// while visible (torrents arriving, server sections appearing). Runs
-    /// only while a hosting view exists (i.e. while the panel is visible);
-    /// `layout()` guards the optional defensively anyway.
+    /// Resizes the panel when its content height changes while visible
+    /// (torrents arriving, server sections appearing) while keeping the
+    /// anchor captured at `show()` time. Runs only while a hosting view exists
+    /// (i.e. while the panel is visible); `layout()` guards the optional
+    /// defensively anyway.
     private func relayoutIfVisible() {
         guard panel.isVisible, hostingView != nil else { return }
         layout()

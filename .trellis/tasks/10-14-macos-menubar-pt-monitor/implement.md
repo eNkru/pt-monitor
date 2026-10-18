@@ -342,3 +342,23 @@ Gates after the fix: clean build (0 warnings), `--selftest` 113 → **121 checks
   bundle green, forced zh-Hans selftest green, codesign valid.
 - Spec: app-conventions §6 (key list) and §7 (filter-before-cap contract);
   PRD AC16 revision note extended.
+
+## Panel anchor stability round (2026-10-18)
+
+- Reported symptom: with the panel open, the window shifted a little on every
+  data refresh. Root cause: `StatusItemController` uses
+  `NSStatusItem.variableLength`, so the button's width — and therefore
+  `statusItemScreenFrame().midX` — changes whenever the speed text changes
+  width (`999 B/s` → `1.2M`, or a full → compact degradation step).
+  `PanelController.relayoutIfVisible()` runs on every `MonitorStore`/
+  `SettingsStore` publish (2 s poll), and `layout()` re-derived the anchor from
+  that moving frame, so the open panel tracked the item's width changes.
+- Fix in `PanelController`: capture the status item's screen frame once in
+  `show()` (`anchorFrame`, cleared in `hide()`), use it for all relayouts, and
+  skip `setFrame` when the computed rect equals the current frame. The panel now
+  keeps a fixed `midX` and a top edge pinned under the item for the whole
+  presentation; content growth only extends it downwards.
+- No selftest coverage possible (AppKit window geometry); gates:
+  `swift build` 0 warnings, `--selftest` 191 checks, `./scripts/build-app.sh`
+  green. Manual check for the user: open the panel on a transferring server and
+  confirm the window no longer drifts while speeds update.

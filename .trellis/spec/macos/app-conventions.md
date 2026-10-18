@@ -215,6 +215,14 @@ proactive Basic-auth header). Do not delete the task-level forwarder as
   - Positioning: under the status item's screen frame, flipped above the item
     if it would run off the screen bottom; height from the SwiftUI content's
     fitting size, capped at ~70% of the screen.
+  - **The anchor frame is captured once per presentation** (`show()`), never
+    recomputed by a relayout. The item is `variableLength`, so its width —
+    and `midX` — changes with the speed text (`999 B/s` vs `1.2M`, or a
+    full → compact degradation step); re-deriving the anchor on every poll
+    publish slid the open panel sideways. Relayouts (content height changes)
+    keep the top edge pinned and `midX` fixed, and skip the `setFrame` write
+    when the computed rect equals the current frame so an idle panel is not
+    repositioned/redisplayed every 2 s.
   - Dismissal: global + local mouse-down monitors (click outside), Esc, and
     re-clicking the status item toggles. The local monitor must **exclude
     the status item's frame** or the toggle fights the close. Monitors are
