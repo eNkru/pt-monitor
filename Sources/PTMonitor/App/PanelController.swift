@@ -22,8 +22,15 @@ final class PanelController: NSObject, NSWindowDelegate {
     private static let edgeGap: CGFloat = 8
 
     private let panel: NSPanel
-    private let hostingView: NSHostingView<PanelView>
     private let button: NSStatusBarButton
+    // Kept so `show()` can rebuild a fresh SwiftUI graph each time the panel
+    // opens (see `installHostingView()`).
+    private let settings: SettingsStore
+    private let monitor: MonitorStore
+    private let onPreferencesHandler: () -> Void
+
+    /// Nil whenever the panel is hidden — see `installHostingView()`.
+    private var hostingView: NSHostingView<PanelView>?
 
     private var globalMonitor: Any?
     private var localMonitor: Any?
@@ -32,8 +39,9 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     init(settings: SettingsStore, monitor: MonitorStore, button: NSStatusBarButton, onPreferences: @escaping () -> Void) {
         self.button = button
-        let view = PanelView(settings: settings, monitor: monitor)
-        self.hostingView = NSHostingView(rootView: view)
+        self.settings = settings
+        self.monitor = monitor
+        self.onPreferencesHandler = onPreferences
         self.panel = StatusPanel(
             contentRect: NSRect(x: 0, y: 0, width: PanelView.preferredWidth, height: 360),
             styleMask: [.nonactivatingPanel],
@@ -41,15 +49,6 @@ final class PanelController: NSObject, NSWindowDelegate {
             defer: false
         )
         super.init()
-
-        // Two-phase wiring: `self` cannot be captured before every stored
-        // property is initialized, so the dismiss-aware Preferences action is
-        // installed here. Weak self — the hosting view outlives nothing here,
-        // but the closure must not keep the controller alive.
-        hostingView.rootView.onPreferences = { [weak self] in
-            self?.hide()
-            onPreferences()
-        }
 
         panel.level = .statusBar
         panel.isOpaque = false
@@ -61,8 +60,6 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.delegate = self
-        panel.contentView = hostingView
-        hostingView.autoresizingMask = [.width, .height]
 
         // The panel is a real window, so SwiftUI redraws on every publish
         // while it is open (design §6.2). Store changes can change the content
@@ -95,6 +92,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     func show() {
+        installHostingView()
         layout()
         installMonitors()
         panel.orderFrontRegardless() // never activates the app
@@ -103,7 +101,34 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     func hide() {
         panel.orderOut(nil)
+        // Tear the SwiftUI graph down while hidden (performance fix): an
+        // `NSHostingView` that stays attached keeps running its layout
+        // feedback loop at display-frame rate even with the panel ordered
+        // out — with thousands of torrent rows that alone pinned the main
+        // thread at 60–99% CPU with the dropdown closed. Dropping the
+        // content view destroys the view tree (TimelineView included); the
+        // graph is rebuilt fresh on the next `show()`, which also keeps the
+        // "panel is fresh on every open" behaviour. Cost: scroll position
+        // resets between opens — acceptable.
+        panel.contentView = nil
+        hostingView = nil
         removeMonitors()
+    }
+
+    /// Builds a fresh SwiftUI graph each time the panel opens. Two-phase
+    /// wiring: `self` cannot be captured before every stored property is
+    /// initialized, so the dismiss-aware Preferences action is installed
+    /// here. Weak self — the closure must not keep the controller alive.
+    private func installHostingView() {
+        var view = PanelView(settings: settings, monitor: monitor)
+        view.onPreferences = { [weak self] in
+            self?.hide()
+            self?.onPreferencesHandler()
+        }
+        let hosting = NSHostingView(rootView: view)
+        hosting.autoresizingMask = [.width, .height]
+        panel.contentView = hosting
+        hostingView = hosting
     }
 
     // MARK: - Layout
@@ -115,6 +140,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     private func layout() {
         guard let screen = button.window?.screen ?? NSScreen.main else { return }
         guard let itemFrame = statusItemScreenFrame() else { return }
+        guard let hostingView else { return }
 
         hostingView.frame.size.width = PanelView.preferredWidth
         let fitting = hostingView.fittingSize
@@ -137,9 +163,11 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     /// Re-anchors the panel under the item when its content height changes
-    /// while visible (torrents arriving, server sections appearing).
+    /// while visible (torrents arriving, server sections appearing). Runs
+    /// only while a hosting view exists (i.e. while the panel is visible);
+    /// `layout()` guards the optional defensively anyway.
     private func relayoutIfVisible() {
-        guard panel.isVisible else { return }
+        guard panel.isVisible, hostingView != nil else { return }
         layout()
     }
 

@@ -20,6 +20,7 @@
 "No torrents." = "No torrents.";
 "Connecting…" = "Connecting…";
 "Disabled" = "Disabled";
+"%lld more torrents" = "%lld more torrents";
 
 /* Failure headlines (technical detail stays English) */
 "Unreachable" = "Unreachable";

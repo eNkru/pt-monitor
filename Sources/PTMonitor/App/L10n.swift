@@ -61,6 +61,12 @@ enum L10n {
     static var connecting: String { s("Connecting…") }
     static var disabled: String { s("Disabled") }
 
+    /// Row-cap footnote when a server exceeds
+    /// `PanelView.maxVisibleTorrentsPerServer` rendered rows.
+    static func moreTorrents(_ count: Int) -> String {
+        String(format: s("%lld more torrents"), count)
+    }
+
     /// Cause-specific *headline* for a failed server (R6). The failure's own
     /// technical detail (`failure.message`, English) renders beneath this.
     static func causeHeadline(of failure: ServerFailure) -> String {

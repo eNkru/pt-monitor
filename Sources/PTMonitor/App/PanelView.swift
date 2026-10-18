@@ -32,6 +32,13 @@ struct PanelView: View {
     private static let cardRadius: CGFloat = 16
     private static let sectionScrollMaxHeight: CGFloat = 440
 
+    /// Rows rendered per server before the "+ N more" footnote takes over.
+    /// The clients' fixed sort puts downloading torrents first, so the cap
+    /// drops only the long idle tail of a multi-thousand-torrent library —
+    /// materialising all of it is what pinned the CPU at 60–99% with the
+    /// dropdown closed. Plain text, no "show all" action (R8).
+    static let maxVisibleTorrentsPerServer = 100
+
     // MARK: - Body
 
     var body: some View {
@@ -195,10 +202,13 @@ struct PanelView: View {
     }
 
     /// The whole mid-area scrolls when the sections are long; header, grid,
-    /// and footer stay put.
+    /// and footer stay put. `LazyVStack` (not `VStack`): a plain `VStack`
+    /// materialises every torrent row of every server up front — thousands of
+    /// truncating texts and meters for a large library — while the lazy
+    /// variant builds only what is visible.
     private var serverSections: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(enabledServers.enumerated()), id: \.element.id) { index, server in
                     if index > 0 {
                         hairline
@@ -223,12 +233,19 @@ struct PanelView: View {
                 } else {
                     // Clients already apply the fixed sort (design §6.1);
                     // there is deliberately no user-facing sort UI (R8).
-                    ForEach(Array(snapshot.torrents.enumerated()), id: \.element.id) { index, torrent in
+                    // Only the first `maxVisibleTorrentsPerServer` rows
+                    // render; the rest collapses into the footnote below
+                    // (performance: see the constant's comment).
+                    let visible = snapshot.torrents.prefix(Self.maxVisibleTorrentsPerServer)
+                    ForEach(Array(visible.enumerated()), id: \.element.id) { index, torrent in
                         if index > 0 {
                             hairline
                                 .padding(.leading, 14)
                         }
                         row(torrent)
+                    }
+                    if snapshot.torrents.count > visible.count {
+                        note(L10n.moreTorrents(snapshot.torrents.count - visible.count))
                     }
                 }
             case .failed(let failure):
