@@ -83,9 +83,24 @@ protocol TorrentClient: Sendable {
 
 - `POST /api/v2/auth/login`, form-encoded `username=&password=`, **no `Origin`,
   no `Referer`** (CSRF is on by default and only skipped when both are absent).
-- Wrong credentials return **HTTP 200 with body `Fails.`** → `.auth`. Never
-  infer auth failure from a 401 here. `Ok.` is not proof of credentials
-  (localhost/subnet bypass).
+- **The login verdict moved from the body to the status code in qBittorrent
+  5.2** (`src/webui/api/authcontroller.cpp`):
+
+  | server | success | wrong credentials | banned IP |
+  | --- | --- | --- | --- |
+  | ≤ 5.1 | `200 "Ok."` | `200 "Fails."` | `403` |
+  | 5.2+ | `204`, no body | `401 "Unauthorized"` | `403` |
+
+  Accept **all** of them: `204` success, `200 "Ok."` success, `200 "Fails."`
+  → `.auth`, `401` → `.auth`, `403` → `.banned`. `Ok.` is not proof of
+  credentials (localhost/subnet bypass). A `200` with a blank body stays a
+  `.protocolViolation`. Reading only the ≤ 5.1 shape made every login against
+  a 5.2 server fail with "login failed with HTTP 204" while the `SID` cookie
+  had in fact been set; `scripts/fake-qbittorrent.py` reproduces both
+  generations (`WEBAPI=5.2`).
+- `204` from `auth/login` is a **body-less success**: never treat an empty body
+  as a protocol violation on that endpoint, and never gate the login on the
+  WebAPI version (a 204 is self-describing).
 - **The `SID` cookie must be carried by the session's own storage.** Do **not**
   assign a hand-made `HTTPCookieStorage()` to
   `URLSessionConfiguration.httpCookieStorage`: on macOS 12.7.6 the session then

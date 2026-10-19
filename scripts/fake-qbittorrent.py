@@ -7,7 +7,8 @@ answered with HTTP 403, the same status the login ban uses. A transport bug that
 dropped the `SID` cookie therefore looked exactly like "the server banned this
 IP", and 121 in-binary checks could not tell the difference. This stub can.
 
-It mirrors qBittorrent 4.6.0 exactly where it matters:
+It mirrors qBittorrent 4.6.0 (and, with `WEBAPI=5.2`, 5.2) exactly where it
+matters:
 
   src/webui/api/authcontroller.cpp::loginAction()
       - banned IP          -> APIErrorType::AccessDenied   => HTTP 403
@@ -22,6 +23,13 @@ It mirrors qBittorrent 4.6.0 exactly where it matters:
       - WebUI/MaxAuthenticationFailCount default 5
       - WebUI/BanDuration                default 3600 s
 
+`WEBAPI=5.2` switches it to the 5.2 shapes, which moved the verdict from the
+body to the status (upstream `authcontroller.cpp::loginAction`):
+
+  - banned IP          -> ForbiddenHTTPError           => HTTP 403
+  - wrong credentials  -> APIError(Unauthorized)       => HTTP 401
+  - right credentials  -> no result data               => HTTP 204 (no body)
+
 Usage:
 
     python3 scripts/fake-qbittorrent.py [port]        # default 18080
@@ -31,7 +39,9 @@ Usage:
 
 Expected: a JSON snapshot and exit 0. Wrong credentials must report
 "auth failed" (not "banned") for the first `MaxAuthenticationFailCount`
-attempts, and only then "banned".
+attempts, and only then "banned". Repeat with `WEBAPI=5.2 python3
+scripts/fake-qbittorrent.py` — the logins are a 204 and a 401 there, and the
+outcome must be identical.
 
 `COOKIE_MODE` (strict|lax|none|bare) varies the `Set-Cookie` attributes, which
 is how the cookie-storage bug was isolated. The stub logs every request to
@@ -46,6 +56,8 @@ USER = "admin"
 PASS = "adminadmin"
 MAX_FAILS = 5
 SID = "stubSIDvalue123"
+# qBittorrent 5.2 signals login success/failure with the status code alone.
+API52 = os.environ.get("WEBAPI") == "5.2"
 
 fail_count = 0
 banned = False
@@ -67,7 +79,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         for k, v in (headers or {}).items():
             self.send_header(k, v)
-        self.send_header("Content-Length", str(len(body)))
+        # 204 carries no body, so it carries no Content-Length either.
+        if code != 204:
+            self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         if body:
             self.wfile.write(body)
@@ -102,17 +116,25 @@ class Handler(BaseHTTPRequestHandler):
                      "lax": "; HttpOnly; SameSite=Lax",
                      "none": "; HttpOnly",
                      "bare": ""}[mode]
-            sys.stderr.write("stub: login -> 200 Ok. (session started)\n")
-            self.respond(200, "Ok.", {"Set-Cookie": f"SID={SID}; path=/{attrs}"})
+            cookie = {"Set-Cookie": f"SID={SID}; path=/{attrs}"}
+            if API52:
+                sys.stderr.write("stub: login -> 204 (session started, no body)\n")
+                self.respond(204, "", cookie)
+            else:
+                sys.stderr.write("stub: login -> 200 Ok. (session started)\n")
+                self.respond(200, "Ok.", cookie)
             return
 
         fail_count += 1
         if fail_count >= MAX_FAILS:
             banned = True
-            sys.stderr.write(f"stub: login -> 200 Fails. (attempt {fail_count}, NOW BANNED)\n")
+            sys.stderr.write(f"stub: login -> fail (attempt {fail_count}, NOW BANNED)\n")
         else:
-            sys.stderr.write(f"stub: login -> 200 Fails. (attempt {fail_count}/{MAX_FAILS})\n")
-        self.respond(200, "Fails.")
+            sys.stderr.write(f"stub: login -> fail (attempt {fail_count}/{MAX_FAILS})\n")
+        if API52:
+            self.respond(401, "Unauthorized")
+        else:
+            self.respond(200, "Fails.")
 
     def do_GET(self):
         if not self.has_session():
@@ -120,9 +142,9 @@ class Handler(BaseHTTPRequestHandler):
             self.forbidden()
             return
         if self.path.startswith("/api/v2/app/webapiVersion"):
-            self.respond(200, "2.11.2")
+            self.respond(200, "2.15.1" if API52 else "2.11.2")
         elif self.path.startswith("/api/v2/app/version"):
-            self.respond(200, "v4.6.0")
+            self.respond(200, "v5.2.0" if API52 else "v4.6.0")
         elif self.path.startswith("/api/v2/sync/maindata"):
             self.respond(200, json.dumps({
                 "rid": 1,

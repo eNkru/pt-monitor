@@ -367,10 +367,26 @@ public enum SelfTest {
             true
         )
 
-        // --- qBittorrent: 200 "Fails." is a credential failure, not a 401 ---
+        // --- qBittorrent login: status moved from body to status code in 5.2 ---
+        // ≤ 5.1: 200 "Ok." / 200 "Fails.". 5.2+: 204 (no body) / 401.
         let fails = QBittorrentParser.loginFailure(statusCode: 200, body: "Fails.")
         try expect("qb 200 Fails. -> auth", fails?.kindLabel, "auth failed")
         try expect("qb 200 Ok. -> success", QBittorrentParser.loginFailure(statusCode: 200, body: "Ok.") == nil, true)
+        try expect(
+            "qb 5.2 login 204 -> success",
+            QBittorrentParser.loginFailure(statusCode: 204, body: "") == nil,
+            true
+        )
+        try expect(
+            "qb 5.2 login 401 -> auth",
+            QBittorrentParser.loginFailure(statusCode: 401, body: "Unauthorized")?.kindLabel,
+            "auth failed"
+        )
+        try expect(
+            "qb login 200 blank body -> unexpected response",
+            QBittorrentParser.loginFailure(statusCode: 200, body: "")?.kindLabel,
+            "unexpected response"
+        )
         // Only `auth/login` can be banned: the server checks the ban before it
         // looks at the credentials.
         try expect(

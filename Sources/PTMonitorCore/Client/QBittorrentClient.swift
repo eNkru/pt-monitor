@@ -50,11 +50,27 @@ public enum QBittorrentParser {
     }
 
     /// Maps a `POST /api/v2/auth/login` response to a failure, or `nil` on
-    /// success. Wrong credentials return **HTTP 200 with body `Fails.`** — not
-    /// a 401 — so the body must be checked (research/apis.md §1.1).
+    /// success.
+    ///
+    /// The verdict moved from the **body** to the **status** in qBittorrent 5.2
+    /// (upstream `authcontroller.cpp`):
+    ///
+    /// | server | success | wrong credentials |
+    /// |--------|---------|-------------------|
+    /// | ≤ 5.1  | `200 "Ok."` | `200 "Fails."` |
+    /// | 5.2+   | `204` (no body) | `401` |
+    ///
+    /// Both generations are accepted, so a 204 is success and a 401 is an auth
+    /// failure. Reading only the 5.1 shape made every login against a 5.2
+    /// server fail with "login failed with HTTP 204" even though the `SID`
+    /// cookie had been set.
     public static func loginFailure(statusCode: Int, body: String) -> ServerFailure? {
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         switch statusCode {
+        case 204:
+            // qBittorrent 5.2+: success carries no payload at all, only the
+            // `Set-Cookie: SID=…` header.
+            return nil
         case 200:
             switch trimmed {
             case "Ok.":
@@ -68,11 +84,15 @@ public enum QBittorrentParser {
                 return .protocolViolation("unexpected login response \"\(trimmed)\"")
             }
         case 401:
+            // qBittorrent 5.2+: `throw APIError(Unauthorized)` for rejected
+            // credentials, body "Unauthorized".
             return .auth("invalid username or password")
         case 403:
             // `auth/login` is the only endpoint that can be banned: the server
             // checks the ban before it looks at the credentials
-            // (authcontroller.cpp `loginAction`), so this is the real thing.
+            // (`webapplication.cpp` `validateCredentials`, in ≤5.1 the same
+            // check lived in `authcontroller.cpp` `loginAction`), so this is
+            // the real thing.
             // The ban lasts `WebUI/BanDuration` (default 3600 s) and is per IP.
             return .banned(
                 "the WebUI has banned this Mac's IP after too many failed logins — "
