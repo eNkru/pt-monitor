@@ -39,3 +39,36 @@ Torrent row redesign: state dot + 2-line name, full-width 7pt progress bar with 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: qBittorrent 5.2 login fix
+
+**Date**: 2026-10-19
+**Task**: qBittorrent 5.2 login fix
+**Branch**: `main`
+
+### Summary
+
+qBittorrent 5.2 moved the login verdict to the status code (204 success / 401 failure); loginFailure() only knew the <=5.1 200 "Ok."/"Fails." bodies, so every login against a 5.2 server failed with HTTP 204. Parser now accepts both generations, selftest covers 204/401/blank-200, the stub WebUI speaks 5.2 via WEBAPI=5.2, and spec 4.1 documents the version table.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `37cfe6b` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
