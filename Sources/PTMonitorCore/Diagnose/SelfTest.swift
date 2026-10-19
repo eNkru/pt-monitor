@@ -94,6 +94,7 @@ public enum SelfTest {
             try formatterChecks(&checks)
             try await clientChecks(&checks)
             try rowChecks(&checks)
+            try detailChecks(&checks)
             try await storeChecks(&checks)
             try transportChecks(&checks)
             try validationChecks(&checks)
@@ -512,18 +513,35 @@ public enum SelfTest {
         let qbTorrents: [String: Any] = [
             "aaaa000000000000000000000000000000000000": [
                 "name": "Seeding ISO", "state": "stalledUP", "progress": 1.0,
-                "dlspeed": 0, "upspeed": 20480, "eta": 8640000
+                "dlspeed": 0, "upspeed": 20480, "eta": 8640000,
+                "total_size": 6_600_000_000, "downloaded": 6_600_000_000,
+                "uploaded": 9_800_000_000, "ratio": 2.41,
+                "num_seeds": 12, "num_leechs": 3, "category": "Movies"
             ],
             "bbbb000000000000000000000000000000000000": [
                 "name": "Downloading ISO", "state": "downloading", "progress": 0.42,
-                "dlspeed": 1_258_291, "upspeed": 5120, "eta": 1800
+                "dlspeed": 1_258_291, "upspeed": 5120, "eta": 1800,
+                // ratio -1 is the API's "not available" sentinel; the swarm
+                // counts stand in when the connected counts are absent.
+                "ratio": -1, "num_complete": 40, "num_incomplete": 7,
+                "category": ""
             ],
             // No name → falls back to the hash; progress is malformed.
             "cccc000000000000000000000000000000000000": [
                 "state": "error", "progress": 7.5, "dlspeed": 0, "upspeed": 0
             ]
         ]
-        var qbSummaries = QBittorrentParser.summaries(fromTorrents: qbTorrents)
+        // The top-level `trackers` map rides along in the same full snapshot, so
+        // the site label needs no extra request (R1).
+        let qbTrackers: [String: Any] = [
+            "aaaa000000000000000000000000000000000000": [
+                ["url": "https://tracker.hdchina.org/announce.php?passkey=x", "tier": 0, "status": 2]
+            ],
+            "bbbb000000000000000000000000000000000000": [
+                ["url": "udp://announce.othersite.net:6969/announce", "tier": 0, "status": 1]
+            ]
+        ]
+        var qbSummaries = QBittorrentParser.summaries(fromTorrents: qbTorrents, trackers: qbTrackers)
         try c.expect("qb summaries count", qbSummaries.count, 3)
         let qbDownloading = qbSummaries.first { $0.name == "Downloading ISO" }
         try c.expectOptional("qb summary state", qbDownloading?.state, TorrentState.downloading)
@@ -535,6 +553,25 @@ public enum SelfTest {
         try c.expectOptional("qb summary progress clamped", qbUnnamed?.progress, 1.0)
         let qbSeeding = qbSummaries.first { $0.name == "Seeding ISO" }
         try c.expectOptional("qb summary infinite eta is nil", qbSeeding?.etaSeconds, nil)
+
+        // --- qBittorrent detail fields (expanded row + site label) ---
+        try c.expectOptional("qb detail total size", qbSeeding?.totalSize, 6_600_000_000)
+        try c.expectOptional("qb detail uploaded", qbSeeding?.uploaded, 9_800_000_000)
+        try c.expectOptional("qb detail ratio", qbSeeding?.ratio, 2.41)
+        try c.expectOptional("qb detail seeders", qbSeeding?.seeders, 12)
+        try c.expectOptional("qb detail leechers", qbSeeding?.leechers, 3)
+        try c.expectOptional("qb detail category", qbSeeding?.category, "Movies")
+        try c.expectOptional("qb detail site from first tracker", qbSeeding?.site, "hdchina.org")
+        try c.expectOptional("qb detail tracker status working", qbSeeding?.trackerStatus, TrackerStatus.working)
+        try c.expectOptional("qb detail ratio -1 is nil", qbDownloading?.ratio, nil)
+        try c.expectOptional("qb detail empty category is nil", qbDownloading?.category, nil)
+        try c.expectOptional("qb detail falls back to swarm counts", qbDownloading?.seeders, 40)
+        try c.expectOptional("qb detail leechers fallback", qbDownloading?.leechers, 7)
+        try c.expectOptional("qb detail site from udp announce", qbDownloading?.site, "othersite.net")
+        try c.expectOptional("qb detail tracker status not working", qbDownloading?.trackerStatus, TrackerStatus.notWorking)
+        // A torrent with no tracker entry has no site — never a placeholder.
+        try c.expectOptional("qb detail no tracker means no site", qbUnnamed?.site, nil)
+        try c.expectOptional("qb detail no tracker means no status", qbUnnamed?.trackerStatus, nil)
 
         // Fixed sort (design §6.1): downloading first, then seeding, then the
         // rest; within a group by down speed desc.
@@ -562,11 +599,17 @@ public enum SelfTest {
         let txTorrents: [Any] = [
             [
                 "id": 1, "name": "Linux Distro", "status": 4, "percentDone": 0.5,
-                "rateDownload": 524288, "rateUpload": 0, "eta": 900, "error": 0, "errorString": ""
+                "rateDownload": 524288, "rateUpload": 0, "eta": 900, "error": 0, "errorString": "",
+                "totalSize": 1_400_000_000, "downloadedEver": 700_000_000,
+                "uploadedEver": 350_000_000, "uploadRatio": 0.5,
+                "peersSendingToUs": 5, "peersGettingFromUs": 2,
+                "trackers": [["announce": "https://tracker.hdchina.org/announce", "tier": 0]]
             ],
             [
                 "id": 2, "name": "Broken Torrent", "status": 4, "percentDone": 0.1,
-                "rateDownload": 0, "rateUpload": 0, "eta": -1, "error": 3, "errorString": "unregistered torrent"
+                "rateDownload": 0, "rateUpload": 0, "eta": -1, "error": 3, "errorString": "unregistered torrent",
+                // Nothing downloaded yet: Transmission reports ratio -1.
+                "uploadRatio": -1, "trackers": []
             ]
         ]
         let txSummaries = TransmissionParser.summaries(fromTorrents: txTorrents)
@@ -578,6 +621,20 @@ public enum SelfTest {
         let txBroken = txSummaries.first { $0.name == "Broken Torrent" }
         try c.expectOptional("tx summary error overrides status", txBroken?.state, TorrentState.error)
         try c.expectOptional("tx summary eta sentinel is nil", txBroken?.etaSeconds, nil)
+
+        // --- Transmission detail fields (expanded row + site label) ---
+        try c.expectOptional("tx detail total size", txDownloading?.totalSize, 1_400_000_000)
+        try c.expectOptional("tx detail downloaded", txDownloading?.downloaded, 700_000_000)
+        try c.expectOptional("tx detail uploaded", txDownloading?.uploaded, 350_000_000)
+        try c.expectOptional("tx detail ratio", txDownloading?.ratio, 0.5)
+        try c.expectOptional("tx detail seeders", txDownloading?.seeders, 5)
+        try c.expectOptional("tx detail leechers", txDownloading?.leechers, 2)
+        try c.expectOptional("tx detail site", txDownloading?.site, "hdchina.org")
+        // `error: 0` means healthy — the errorString is not surfaced.
+        try c.expectOptional("tx detail healthy has no error message", txDownloading?.errorMessage, nil)
+        try c.expectOptional("tx detail failed carries errorString", txBroken?.errorMessage, "unregistered torrent")
+        try c.expectOptional("tx detail ratio -1 is nil", txBroken?.ratio, nil)
+        try c.expectOptional("tx detail empty tracker list means no site", txBroken?.site, nil)
 
         // Progress clamping is shared by both clients (AC17): nil/NaN/negative
         // clamp to 0, over-range to 1.
@@ -680,6 +737,130 @@ public enum SelfTest {
         try c.expect("percent: complete", TorrentSummary.percentText(1), "100%")
         try c.expect("percent: over-range clamps", TorrentSummary.percentText(1.5), "100%")
         try c.expect("percent: NaN clamps", TorrentSummary.percentText(Double.nan), "0%")
+    }
+
+    // MARK: - Site label + expanded detail (row detail)
+
+    /// The PT site derivation, the uniform-site hoisting rule, and the expanded
+    /// detail block. All three are pure decisions with no strings, so they are
+    /// checked here rather than by eyeballing the panel (AC9).
+    private static func detailChecks(_ c: inout Checks) throws {
+        // --- Site extraction (R2/R3) ---
+        try c.expect(
+            "site: https URL with path and query",
+            TorrentSummary.site(fromAnnounceURL: "https://tracker.hdchina.org/announce.php?passkey=x"),
+            "hdchina.org"
+        )
+        try c.expect(
+            "site: udp announce with port",
+            TorrentSummary.site(fromAnnounceURL: "udp://tracker.example.net:6969/announce"),
+            "example.net"
+        )
+        try c.expect(
+            "site: announce. prefix",
+            TorrentSummary.site(fromAnnounceURL: "announce.torrentleech.org"),
+            "torrentleech.org"
+        )
+        try c.expect(
+            "site: bare host is unchanged",
+            TorrentSummary.site(fromAnnounceURL: "hdchina.org"),
+            "hdchina.org"
+        )
+        try c.expect(
+            "site: http URL with port and path",
+            TorrentSummary.site(fromAnnounceURL: "http://tracker.site.example:8080/announce"),
+            "site.example"
+        )
+        try c.expect(
+            "site: t. prefix",
+            TorrentSummary.site(fromAnnounceURL: "https://t.privatehd.org/announce"),
+            "privatehd.org"
+        )
+        try c.expect(
+            "site: uppercase is lowercased",
+            TorrentSummary.site(fromAnnounceURL: "HTTPS://Tracker.HDChina.ORG/announce"),
+            "hdchina.org"
+        )
+        try c.expectOptional("site: nil input", TorrentSummary.site(fromAnnounceURL: nil), nil)
+        try c.expectOptional("site: empty input", TorrentSummary.site(fromAnnounceURL: ""), nil)
+        try c.expectOptional("site: blank input", TorrentSummary.site(fromAnnounceURL: "   "), nil)
+
+        // --- Uniform-site hoisting (R5) ---
+        func torrent(_ id: String, site: String?) -> TorrentSummary {
+            TorrentSummary(id: id, name: id, state: .seeding, progress: 1, site: site)
+        }
+        try c.expect(
+            "hoist: all rows share one site",
+            TorrentSummary.hoistedSite(for: [torrent("a", site: "hdchina.org"), torrent("b", site: "hdchina.org")]),
+            "hdchina.org"
+        )
+        try c.expect(
+            "hoist: a single row is uniform",
+            TorrentSummary.hoistedSite(for: [torrent("a", site: "hdchina.org")]),
+            "hdchina.org"
+        )
+        try c.expectOptional(
+            "hoist: two distinct sites fall back to per-row",
+            TorrentSummary.hoistedSite(for: [torrent("a", site: "hdchina.org"), torrent("b", site: "other.org")]),
+            nil
+        )
+        try c.expectOptional(
+            "hoist: one row without a site falls back to per-row",
+            TorrentSummary.hoistedSite(for: [torrent("a", site: "hdchina.org"), torrent("b", site: nil)]),
+            nil
+        )
+        try c.expectOptional("hoist: empty section", TorrentSummary.hoistedSite(for: []), nil)
+
+        // --- Expanded detail lines (R8) ---
+        let full = TorrentSummary(
+            id: "full",
+            name: "full",
+            state: .downloading,
+            progress: 0.62,
+            totalSize: 6_600_000_000,
+            downloaded: 4_100_000_000,
+            uploaded: 9_800_000_000,
+            ratio: 2.41,
+            seeders: 12,
+            leechers: 3,
+            site: "hdchina.org",
+            trackerStatus: .working,
+            category: "Movies",
+            errorMessage: "disk full"
+        )
+        try c.expect(
+            "detail: full torrent shows every line in order",
+            TorrentSummary.expandedLines(for: full),
+            [
+                .size(total: 6_600_000_000, downloaded: 4_100_000_000, progress: 0.62),
+                .ratio(ratio: 2.41, uploaded: 9_800_000_000, downloaded: 4_100_000_000),
+                .peers(seeders: 12, leechers: 3),
+                .trackerStatus(.working),
+                .category("Movies"),
+                .error("disk full")
+            ]
+        )
+
+        // Nil means "the server did not report it" — never a zero line (R10).
+        let bare = TorrentSummary(id: "bare", name: "bare", state: .queued, progress: 0)
+        try c.expect("detail: nothing reported yields no lines", TorrentSummary.expandedLines(for: bare), [])
+
+        // The parsers normalise the APIs' `-1` ratio to nil, so a torrent whose
+        // only ratio is the sentinel shows no ratio line.
+        let sentinelRatio = TorrentSummary(id: "r", name: "r", state: .seeding, progress: 1, ratio: nil)
+        try c.expect("detail: nil ratio is omitted", TorrentSummary.expandedLines(for: sentinelRatio), [])
+
+        // Peers appear when either count exists; a missing one stays missing.
+        let halfPeers = TorrentSummary(id: "p", name: "p", state: .seeding, progress: 1, seeders: 7)
+        try c.expect("detail: only seeders reported", TorrentSummary.expandedLines(for: halfPeers), [.peers(seeders: 7, leechers: nil)])
+
+        // Tracker status is a two-valued decision.
+        let notWorking = TorrentSummary(id: "t", name: "t", state: .stalled, progress: 0.5, trackerStatus: .notWorking)
+        try c.expect("detail: not-working tracker", TorrentSummary.expandedLines(for: notWorking), [.trackerStatus(.notWorking)])
+
+        // A failed torrent surfaces its own error text last.
+        let failed = TorrentSummary(id: "e", name: "e", state: .error, progress: 0.3, errorMessage: "Permission denied")
+        try c.expect("detail: failed torrent shows its error", TorrentSummary.expandedLines(for: failed), [.error("Permission denied")])
     }
 
     // MARK: - Store checks (steps 7–9)

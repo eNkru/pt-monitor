@@ -84,6 +84,56 @@ enum L10n {
         String(format: s("%lld more torrents"), count)
     }
 
+    // MARK: - Expanded torrent detail (R8)
+
+    /// Text for one expanded-row detail line. `TorrentSummary.expandedLines`
+    /// decides which lines exist and in what order; this only formats them.
+    static func detailLine(_ line: TorrentDetailLine) -> String {
+        switch line {
+        case .size(let total, let downloaded, let progress):
+            let size = ByteRateFormatter.bytes(total)
+            if let downloaded {
+                let percent = TorrentSummary.percentText(progress)
+                return String(
+                    format: s("Size %@ · %@ downloaded (%@)"),
+                    size,
+                    ByteRateFormatter.bytes(downloaded),
+                    percent
+                )
+            }
+            return String(format: s("Size %@"), size)
+
+        case .ratio(let ratio, let uploaded, let downloaded):
+            let formatted = String(format: "×%.2f", ratio)
+            if let uploaded, let downloaded {
+                return String(
+                    format: s("Ratio %@ · %@ / %@"),
+                    formatted,
+                    ByteRateFormatter.bytes(uploaded),
+                    ByteRateFormatter.bytes(downloaded)
+                )
+            }
+            return String(format: s("Ratio %@"), formatted)
+
+        case .peers(let seeders, let leechers):
+            // Either count can be missing; the dashes are the honest rendering
+            // of "the server did not report it".
+            let seeds = seeders.map(String.init) ?? "—"
+            let leech = leechers.map(String.init) ?? "—"
+            return String(format: s("Seeds %@ · Leechers %@"), seeds, leech)
+
+        case .trackerStatus(let status):
+            let word = status == .working ? s("Working") : s("Not working")
+            return String(format: s("Tracker %@"), word)
+
+        case .category(let category):
+            return String(format: s("Category %@"), category)
+
+        case .error(let message):
+            return String(format: s("Error %@"), message)
+        }
+    }
+
     /// Cause-specific *headline* for a failed server (R6). The failure's own
     /// technical detail (`failure.message`, English) renders beneath this.
     static func causeHeadline(of failure: ServerFailure) -> String {

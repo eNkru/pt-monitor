@@ -44,6 +44,12 @@ struct PanelView: View {
     /// pill meter was near-invisible); the bar spans the whole row width.
     private static let progressBarHeight: CGFloat = 7
 
+    /// Which torrent row is expanded in place (R7). At most one at a time:
+    /// assigning a different id replaces the previous expansion. Pure view
+    /// state — it performs no network call and mutates nothing on the server
+    /// (the read-only contract permits view-state interactions only).
+    @State private var expandedTorrentID: String?
+
     // MARK: - Body
 
     var body: some View {
@@ -229,35 +235,44 @@ struct PanelView: View {
     }
 
     private func section(_ server: ServerConfig) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            sectionHeader(server)
-            switch monitor.statuses[server.id] ?? .connecting {
-            case .online(let snapshot):
-                // Filter first, cap second: when "active only" is on, rows and
-                // the "+ N more" footnote are both computed against the
-                // filtered array. Clients already applied the fixed sort
-                // (design §6.1), and filtering preserves that order; there is
-                // deliberately no user-facing sort UI (R8).
-                let candidates = settings.showActiveTorrentsOnly
-                    ? snapshot.torrents.filter(\.isActive)
-                    : snapshot.torrents
+        let status = monitor.statuses[server.id] ?? .connecting
+        // Filter first, cap second: when "active only" is on, rows and the
+        // "+ N more" footnote are both computed against the filtered array.
+        // Clients already applied the fixed sort (design §6.1), and filtering
+        // preserves that order; there is deliberately no user-facing sort UI.
+        let library: [TorrentSummary]
+        if case .online(let snapshot) = status {
+            library = snapshot.torrents
+        } else {
+            library = []
+        }
+        let candidates = settings.showActiveTorrentsOnly ? library.filter(\.isActive) : library
+        // Only the first `maxVisibleTorrentsPerServer` rows render; the rest
+        // collapses into the footnote below (performance: see the constant).
+        let visible = Array(candidates.prefix(Self.maxVisibleTorrentsPerServer))
+        // The site decision belongs to the section, not the row: the header
+        // shows it when every rendered row shares one site (R5), so it has to
+        // be computed before the header is built — and from exactly the array
+        // the row loop renders.
+        let hoisted = TorrentSummary.hoistedSite(for: visible)
+
+        return VStack(alignment: .leading, spacing: 0) {
+            sectionHeader(server, hoistedSite: hoisted)
+            switch status {
+            case .online:
                 if candidates.isEmpty {
                     // Filter on + non-empty library + nothing transferring is
                     // its own state; an actually empty library stays "No
                     // torrents." either way.
-                    note(settings.showActiveTorrentsOnly && !snapshot.torrents.isEmpty
+                    note(settings.showActiveTorrentsOnly && !library.isEmpty
                         ? L10n.noActiveTorrents
                         : L10n.torrentsEmpty)
                 } else {
-                    // Only the first `maxVisibleTorrentsPerServer` rows
-                    // render; the rest collapses into the footnote below
-                    // (performance: see the constant's comment).
-                    let visible = candidates.prefix(Self.maxVisibleTorrentsPerServer)
                     // No hairline between rows: the rows' own vertical padding
                     // carries the rhythm, and a rule on every row was visual
                     // noise (design §separators).
-                    ForEach(Array(visible.enumerated()), id: \.element.id) { _, torrent in
-                        row(torrent)
+                    ForEach(visible, id: \.id) { torrent in
+                        row(torrent, hoistedSite: hoisted)
                     }
                     if candidates.count > visible.count {
                         note(L10n.moreTorrents(candidates.count - visible.count))
@@ -288,7 +303,7 @@ struct PanelView: View {
 
     /// Small-caps semibold secondary header: server display name plus its live
     /// speeds when online.
-    private func sectionHeader(_ server: ServerConfig) -> some View {
+    private func sectionHeader(_ server: ServerConfig, hoistedSite: String?) -> some View {
         HStack(spacing: 8) {
             Text(server.displayName)
                 .font(.system(size: 11, weight: .semibold))
@@ -298,6 +313,12 @@ struct PanelView: View {
                 Text(ByteRateFormatter.speedText(down: snapshot.downSpeed, up: snapshot.upSpeed))
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundColor(.secondary)
+            }
+            if let hoistedSite {
+                Text(hoistedSite)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
             }
             Spacer(minLength: 0)
         }
@@ -318,14 +339,19 @@ struct PanelView: View {
     /// ```
     ///  ● Name wraps onto a second line when it helps        62.4%
     ///    ━━━━━━━━━━━━━━━━━━━━━━━━━━░░░░░░░░░░░░░  (7pt, full width)
-    ///    ↓ 1.2M · 30m
+    ///    ↓ 1.2M · 30m                      hdchina.org
     /// ```
     ///
     /// Which detail segments a row shows is decided by
     /// `TorrentSummary.infoSegments` (pure, `--selftest`-covered); this view
-    /// only turns them into text. Rows carry no actions (R8).
-    private func row(_ torrent: TorrentSummary) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
+    /// only turns them into text. The PT site joins that same line, right
+    /// aligned, so the collapsed row gains no height (R4/R9).
+    ///
+    /// A click expands the row in place (view state only — no network call, no
+    /// server mutation, so the read-only contract still holds).
+    private func row(_ torrent: TorrentSummary, hoistedSite: String?) -> some View {
+        let expanded = expandedTorrentID == torrent.id
+        return VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline, spacing: Self.layerSpacing) {
                 Circle()
                     .fill(Self.color(for: torrent.state))
@@ -343,17 +369,59 @@ struct PanelView: View {
                     .monospacedDigit()
                     .foregroundColor(.secondary)
             }
-            Text(Self.infoText(torrent))
-                .font(.system(size: 10.5))
-                .monospacedDigit()
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            HStack(spacing: 8) {
+                Text(Self.infoText(torrent))
+                    .font(.system(size: 10.5))
+                    .monospacedDigit()
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 8)
+                // The site wins the width contest: `fixedSize` + a higher
+                // layout priority make the info text truncate first, so the
+                // site never disappears on a long row (R4). Suppressed when
+                // the section header already shows it (R5).
+                if let site = torrent.site, hoistedSite == nil {
+                    Text(site)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .layoutPriority(1)
+                }
+            }
+            if expanded {
+                expandedDetail(torrent)
+            }
         }
-        // All three layers share the name's left edge (past the status dot),
+        // All layers share the name's left edge (past the status dot),
         // so the row reads as one block.
         .padding(.leading, Self.dotSize + Self.layerSpacing)
         .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            // One expansion at a time: tapping the open row closes it, tapping
+            // another row moves the expansion there.
+            expandedTorrentID = expanded ? nil : torrent.id
+        }
+    }
+
+    /// The expanded detail block (R8): one small secondary line per field the
+    /// server actually reported. `TorrentSummary.expandedLines` decides which
+    /// lines exist and in what order; this only renders their text.
+    private func expandedDetail(_ torrent: TorrentSummary) -> some View {
+        let lines = TorrentSummary.expandedLines(for: torrent)
+        return VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                Text(L10n.detailLine(line))
+                    .font(.system(size: 10.5))
+                    .monospacedDigit()
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+        .padding(.top, 1)
     }
 
     /// Status dot diameter; also the name's baseline offset anchor.

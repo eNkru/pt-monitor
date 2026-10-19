@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/macos/app-conventions.md", "reason": "The panel/row rendering contract: bounded lazy torrent list, 100-row cap, row anatomy, and the R8 read-only rule that this task amends to allow view-state interactions. Also the hosting-view lifecycle rule that makes expanded state reset per open."}
+{"file": ".trellis/spec/macos/build-and-run.md", "reason": "Build and --selftest invocation used as the validation gate for every step."}
+{"file": ".trellis/tasks/10-20-torrent-row-detail/design.md", "reason": "Technical design: TorrentSummary field additions, site(fromAnnounceURL:) / hoistedSite / expandedLines pure helpers, parser changes, and the expanded-row view state."}
+{"file": ".trellis/tasks/archive/2026-10/10-14-macos-menubar-pt-monitor/research/apis.md", "reason": "Authoritative API notes: qBittorrent sync/maindata field set and trackers map (§1.3-1.4), Transmission torrent-get fields array (§2.2). Confirms the new fields need no extra request."}

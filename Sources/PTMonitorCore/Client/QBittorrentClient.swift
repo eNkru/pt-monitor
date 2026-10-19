@@ -168,11 +168,19 @@ public enum QBittorrentParser {
     /// Maps the `torrents` map of a `sync/maindata` response (keyed by torrent
     /// hash) onto normalised summaries (R12, design §6.1). Pure, so
     /// `--selftest` can call it directly (AC17).
-    public static func summaries(fromTorrents torrents: [String: Any]) -> [TorrentSummary] {
+    ///
+    /// `trackers` is the response's top-level `trackers` map (hash → tracker
+    /// array). It arrives in the same `rid=0` full snapshot as the torrents, so
+    /// the site label costs no extra request (R1).
+    public static func summaries(
+        fromTorrents torrents: [String: Any],
+        trackers: [String: Any] = [:]
+    ) -> [TorrentSummary] {
         var result: [TorrentSummary] = []
         result.reserveCapacity(torrents.count)
         for (hash, value) in torrents {
             guard let entry = value as? [String: Any] else { continue }
+            let tracker = firstTracker(trackers[hash])
             result.append(TorrentSummary(
                 id: hash,
                 name: (entry["name"] as? String) ?? hash,
@@ -180,10 +188,52 @@ public enum QBittorrentParser {
                 progress: TorrentSummary.clampedProgress((entry["progress"] as? NSNumber)?.doubleValue),
                 downSpeed: JSON.int64(entry["dlspeed"]) ?? 0,
                 upSpeed: JSON.int64(entry["upspeed"]) ?? 0,
-                etaSeconds: etaSeconds(entry["eta"])
+                etaSeconds: etaSeconds(entry["eta"]),
+                totalSize: JSON.int64(entry["total_size"]),
+                downloaded: JSON.int64(entry["downloaded"]),
+                uploaded: JSON.int64(entry["uploaded"]),
+                ratio: ratio(entry["ratio"]),
+                seeders: count(entry["num_seeds"], fallback: entry["num_complete"]),
+                leechers: count(entry["num_leechs"], fallback: entry["num_incomplete"]),
+                site: TorrentSummary.site(fromAnnounceURL: tracker?["url"] as? String),
+                trackerStatus: trackerStatus(tracker?["status"]),
+                category: category(entry["category"])
             ))
         }
         return result
+    }
+
+    /// The first entry of a torrent's tracker array — the one the site label
+    /// reads (R3: no tier preference, no "working tracker" selection).
+    private static func firstTracker(_ value: Any?) -> [String: Any]? {
+        (value as? [Any])?.first as? [String: Any]
+    }
+
+    /// qBittorrent's `ratio` is `-1` when it has nothing to divide by; that is
+    /// not a real ratio, so it maps to `nil` like a missing field (R10).
+    static func ratio(_ value: Any?) -> Double? {
+        guard let number = value as? NSNumber else { return nil }
+        let ratio = number.doubleValue
+        return ratio < 0 ? nil : ratio
+    }
+
+    /// A peer count, preferring the connected count and falling back to the
+    /// swarm total only when the connected count is absent.
+    private static func count(_ primary: Any?, fallback: Any?) -> Int? {
+        JSON.int64(primary).map(Int.init) ?? JSON.int64(fallback).map(Int.init)
+    }
+
+    /// qBittorrent's tracker `status`: `2` is working, `0`/`1`/`3` are disabled /
+    /// not contacted / not working. A missing status stays `nil`.
+    static func trackerStatus(_ value: Any?) -> TrackerStatus? {
+        guard let status = JSON.int64(value) else { return nil }
+        return status == 2 ? .working : .notWorking
+    }
+
+    /// An empty category is "no category", not a category named "".
+    static func category(_ value: Any?) -> String? {
+        guard let category = value as? String, !category.isEmpty else { return nil }
+        return category
     }
 
     /// Maps a `GET /api/v2/sync/maindata?rid=0` body into a snapshot.
@@ -208,7 +258,10 @@ public enum QBittorrentParser {
         }
 
         let torrents = root["torrents"] as? [String: Any] ?? [:]
-        let summaries = summaries(fromTorrents: torrents)
+        let summaries = summaries(
+            fromTorrents: torrents,
+            trackers: root["trackers"] as? [String: Any] ?? [:]
+        )
         // Active count is derived from the normalised states (design §6.1): the
         // same state table drives the torrent list, so there is exactly one
         // mapping to keep in sync with research/apis.md §1.3.

@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/macos/app-conventions.md", "reason": "Check the change against the row-anatomy, lazy-rendering, localization (L10n keys, no strings in Core) and read-only rules — including that the R8 amendment was actually written into the spec."}
+{"file": ".trellis/spec/macos/build-and-run.md", "reason": "Verify a warning-free swift build and a passing --selftest, and that new pure helpers each have an explicit expected-value check."}
+{"file": ".trellis/tasks/10-20-torrent-row-detail/prd.md", "reason": "Acceptance criteria and the resolved decisions (R3/R7 site source, R6 placement, R9 hoisting, R10 expanded field set) that the review must verify."}

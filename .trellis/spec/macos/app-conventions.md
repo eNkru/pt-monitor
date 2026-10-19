@@ -63,6 +63,13 @@ owner, asserted in `--selftest` (AC17):
 - eta sentinels → `nil` (qBittorrent `8640000` or negative; Transmission
   `-1`/`-2`); the UI renders `nil` as an em dash, never a bogus number;
 - `progress` clamped to 0…1;
+- `-1` share-ratio sentinels (both APIs) → `nil`, and an empty qBittorrent
+  `category` → `nil`;
+- the site label, tracker status, and the expanded-row detail fields
+  (`totalSize`, `downloaded`, `uploaded`, `ratio`, `seeders`, `leechers`,
+  `site`, `trackerStatus`, `category`, `errorMessage`) are **all optional and
+  `nil`-means-unreported**, never zero. They arrive in the same poll response
+  the clients already fetch, so they must never trigger an extra request;
 - the fixed display sort is `TorrentSummary.sorted` (downloading → seeding →
   rest, each by down speed desc then name) — a pure static function so
   `--selftest` covers it and neither client drifts.
@@ -268,10 +275,15 @@ proactive Basic-auth header). Do not delete the task-level forwarder as
   filter on, a non-empty library with nothing transferring shows the localized
   "No active torrents." note (vs "No torrents." for an actually empty
   library). The aggregate grid's server-reported counts are unaffected.
-- **Torrent row anatomy** (redesigned 2026-10-18): a state dot + name
-  (`lineLimit(2)`, tail truncation), a full-row-width capsule progress bar
-  (7pt, filled with `PanelView.color(for:)`) with a monospaced percentage at
-  its right end, and one detail line. **Which** detail segments a row shows is
+- **Torrent row anatomy** (redesigned 2026-10-18, extended 2026-10-20): a state
+  dot + name (`lineLimit(2)`, tail truncation), a full-row-width capsule
+  progress bar (7pt, filled with `PanelView.color(for:)`) with a monospaced
+  percentage at its right end, and one detail line — **info text on the left,
+  the PT site right-aligned at the trailing end**. The site is a separate
+  element of that line, never an `infoSegments` case, and it carries
+  `fixedSize()` + `layoutPriority(1)` so the info text truncates first and the
+  site never vanishes on a long row. Collapsed row height and panel width are
+  unchanged by it. **Which** detail segments a row shows is
   decided by `TorrentSummary.infoSegments(state:down:up:etaSeconds:)` — a pure
   function returning `[TorrentRowInfoSegment]` (`down`/`up`/`eta`/`stateWord`)
   with **no strings**, so `--selftest` can assert it; the app target turns
@@ -284,8 +296,38 @@ proactive Basic-auth header). Do not delete the task-level forwarder as
   become untestable. A full-width bar whose fill is proportional must not add a
   `GeometryReader` per row; scale the fill from the leading edge and clip to the
   capsule.
-- **Read-only**: no pause/resume/add/remove. No control endpoints; torrent
-  rows and sections carry no actions (R8, AC18). Only footer rows act.
+- **PT site label** (2026-10-20). Derived from the torrent's **first announce
+  URL** exactly as delivered (qBittorrent `trackers[hash][0].url`, Transmission
+  `trackers[0].announce`) — no tier preference, no "working tracker"
+  selection. `TorrentSummary.site(fromAnnounceURL:)` strips the scheme, port,
+  path/query and a leading `tracker.` / `announce.` / `t.` / `tr.` / `www.`
+  label, and lowercases; there is deliberately **no** public-suffix list, no
+  registrable-domain reduction and no friendly-name table (a hand-maintained
+  domain→brand map rots as soon as a new site is joined). An empty announce
+  list yields `nil`, and `nil` means no label at all — never a placeholder.
+  **Hoisting**: `TorrentSummary.hoistedSite(for:)` returns the shared site only
+  when every *rendered* row (post active-only filter, post 100-row cap) has the
+  same non-nil site; the section header then shows it once and the rows omit it.
+  Mixed sites — or any row without a site — fall back to per-row, because a
+  header would otherwise claim a site some rows are not from. Consequence:
+  section appearance is data-dependent and can flip between polls.
+- **Expanded torrent row** (2026-10-20). Clicking a row expands it in place,
+  one row at a time (`PanelView.expandedTorrentID`). `TorrentSummary.expandedLines(for:)`
+  decides which lines exist and in what order — `size` / `ratio` / `peers` /
+  `trackerStatus` / `category` / `error` — with **no strings**, so `--selftest`
+  asserts the decision and `L10n.detailLine` renders it. A field the server did
+  not report is omitted entirely; `nil` means "unreported", never zero, so no
+  line ever shows a fake `0 B` or a dash. Both clients' `-1` ratio sentinel is
+  normalised to `nil` at parse time, and an empty `category` likewise. The
+  expansion state is **view state only**: it performs no network call and
+  mutates nothing on the server. Two consequences to remember: it resets on
+  every panel open (the hosting view is rebuilt), and it grows the panel
+  downward (the top edge stays anchored, `relayoutIfVisible()` re-fits).
+- **Read-only**: no pause/resume/add/remove. No control endpoints. Torrent rows
+  may carry **view-state interactions only** — expand/collapse, which makes no
+  network call and mutates nothing server-side; they must never carry a server
+  action. Sections carry no actions; the footer rows are the only entries that
+  act on anything.
 
 ## 8. Tests required
 

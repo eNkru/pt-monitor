@@ -95,3 +95,15 @@
 "Relaunch Now" = "Relaunch Now";
 "Edit" = "Edit";
 "Delete" = "Delete";
+
+/* Expanded torrent detail (R8) */
+"Size %@" = "Size %@";
+"Size %@ · %@ downloaded (%@)" = "Size %@ · %@ downloaded (%@)";
+"Ratio %@" = "Ratio %@";
+"Ratio %@ · %@ / %@" = "Ratio %@ · %@ / %@";
+"Seeds %@ · Leechers %@" = "Seeds %@ · Leechers %@";
+"Tracker %@" = "Tracker %@";
+"Working" = "Working";
+"Not working" = "Not working";
+"Category %@" = "Category %@";
+"Error %@" = "Error %@";

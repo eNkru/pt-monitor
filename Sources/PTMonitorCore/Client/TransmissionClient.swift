@@ -4,10 +4,14 @@ import Foundation
 
 public enum TransmissionParser {
     /// `torrent-get` requires an explicit `fields` array in the old protocol
-    /// (research/apis.md §2.2). The list feeds the dropdown only.
+    /// (research/apis.md §2.2). The list feeds the dropdown only. Every field
+    /// below comes back in the same single RPC, so the expanded row and the
+    /// site label add no request (R1/R8).
     public static let torrentFields: [String] = [
         "id", "name", "status", "percentDone", "rateDownload", "rateUpload",
-        "eta", "error", "errorString"
+        "eta", "error", "errorString",
+        "totalSize", "downloadedEver", "uploadedEver", "uploadRatio",
+        "peersSendingToUs", "peersGettingFromUs", "trackers"
     ]
 
     /// Parses a full `session-stats` RPC response body.
@@ -80,6 +84,7 @@ public enum TransmissionParser {
                 mappedState = state(status: JSON.int64(entry["status"]).map(Int.init))
             }
             let id = (entry["id"] as? String) ?? "\(JSON.int64(entry["id"]) ?? -1)"
+            let errorCode = JSON.int64(entry["error"]).map(Int.init) ?? 0
             result.append(TorrentSummary(
                 id: id,
                 name: (entry["name"] as? String) ?? id,
@@ -87,10 +92,36 @@ public enum TransmissionParser {
                 progress: TorrentSummary.clampedProgress((entry["percentDone"] as? NSNumber)?.doubleValue),
                 downSpeed: JSON.int64(entry["rateDownload"]) ?? 0,
                 upSpeed: JSON.int64(entry["rateUpload"]) ?? 0,
-                etaSeconds: etaSeconds(entry["eta"])
+                etaSeconds: etaSeconds(entry["eta"]),
+                totalSize: JSON.int64(entry["totalSize"]),
+                downloaded: JSON.int64(entry["downloadedEver"]),
+                uploaded: JSON.int64(entry["uploadedEver"]),
+                ratio: ratio(entry["uploadRatio"]),
+                seeders: JSON.int64(entry["peersSendingToUs"]).map(Int.init),
+                leechers: JSON.int64(entry["peersGettingFromUs"]).map(Int.init),
+                site: TorrentSummary.site(fromAnnounceURL: firstAnnounceURL(entry["trackers"])),
+                // This field set carries no tracker status; leave it nil rather
+                // than inventing one from the announce URL.
+                trackerStatus: nil,
+                category: nil,
+                errorMessage: errorCode == 0 ? nil : (entry["errorString"] as? String)
             ))
         }
         return result
+    }
+
+    /// `trackers` is an array of `{announce, tier, …}`; the site comes from the
+    /// first entry, as delivered (R3).
+    private static func firstAnnounceURL(_ value: Any?) -> String? {
+        ((value as? [Any])?.first as? [String: Any])?["announce"] as? String
+    }
+
+    /// Transmission's `uploadRatio` is `-1` when nothing has been downloaded;
+    /// that is not a ratio, so it maps to `nil` (R10).
+    static func ratio(_ value: Any?) -> Double? {
+        guard let number = value as? NSNumber else { return nil }
+        let ratio = number.doubleValue
+        return ratio < 0 ? nil : ratio
     }
 }
 
