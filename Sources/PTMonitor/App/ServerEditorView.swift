@@ -153,8 +153,8 @@ final class ServerEditorModel: ObservableObject, @unchecked Sendable {
     /// Normalises the form; on failure sets `message` and returns `nil`.
     func validated() -> ServerConfigValidator.Validated? {
         do {
-            let result = try ServerConfigValidator.validate(draft())
-            notice = result.notices.first
+            let result = try ServerConfigValidator.validate(provisionalConfig(), portText: port)
+            notice = result.notice
             message = nil
             messageIsError = false
             return result
@@ -169,13 +169,15 @@ final class ServerEditorModel: ObservableObject, @unchecked Sendable {
         }
     }
 
-    private func draft() -> ServerConfigDraft {
-        ServerConfigDraft(
+    /// The form as a `ServerConfig`. `port` is a placeholder only: the typed
+    /// port text is what `ServerConfigValidator` actually reads.
+    private func provisionalConfig() -> ServerConfig {
+        ServerConfig(
             id: id,
             kind: kind,
             name: name,
             host: host,
-            port: port,
+            port: Int(port.trimmingCharacters(in: .whitespacesAndNewlines)) ?? kind.defaultPort,
             useTLS: useTLS,
             allowInsecureTLS: allowInsecureTLS,
             username: username,
@@ -195,7 +197,7 @@ final class ServerEditorModel: ObservableObject, @unchecked Sendable {
             isTesting = false
             return
         }
-        notice = validated.notices.first
+        notice = validated.notice
 
         let config = validated.config
         let password = self.password

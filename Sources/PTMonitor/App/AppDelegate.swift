@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.preferences = preferences
         self.statusItem = statusItem
 
-        Task { await monitor.start() }
+        Task { await monitor.reconcile() }
     }
 
     /// Fired by "Quit PT Monitor" (⌘Q) and by logout/shutdown. Polling tasks are

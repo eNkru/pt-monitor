@@ -30,8 +30,8 @@ public enum TransmissionParser {
         TransferSnapshot(
             downSpeed: JSON.int64(arguments["downloadSpeed"]) ?? 0,
             upSpeed: JSON.int64(arguments["uploadSpeed"]) ?? 0,
-            activeTorrents: JSON.int(arguments["activeTorrentCount"]) ?? 0,
-            totalTorrents: JSON.int(arguments["torrentCount"]) ?? 0,
+            activeTorrents: JSON.int64(arguments["activeTorrentCount"]).map(Int.init) ?? 0,
+            totalTorrents: JSON.int64(arguments["torrentCount"]).map(Int.init) ?? 0,
             freeSpace: nil,
             connectionState: .connected,
             fetchedAt: fetchedAt
@@ -74,15 +74,15 @@ public enum TransmissionParser {
         for value in torrents {
             guard let entry = value as? [String: Any] else { continue }
             let mappedState: TorrentState
-            if let error = JSON.int(entry["error"]), error != 0 {
+            if let error = JSON.int64(entry["error"]).map(Int.init), error != 0 {
                 mappedState = .error
             } else {
-                mappedState = state(status: JSON.int(entry["status"]))
+                mappedState = state(status: JSON.int64(entry["status"]).map(Int.init))
             }
-            let id = JSON.string(entry["id"]) ?? "\(JSON.int64(entry["id"]) ?? -1)"
+            let id = (entry["id"] as? String) ?? "\(JSON.int64(entry["id"]) ?? -1)"
             result.append(TorrentSummary(
                 id: id,
-                name: JSON.string(entry["name"]) ?? id,
+                name: (entry["name"] as? String) ?? id,
                 state: mappedState,
                 progress: TorrentSummary.clampedProgress((entry["percentDone"] as? NSNumber)?.doubleValue),
                 downSpeed: JSON.int64(entry["rateDownload"]) ?? 0,
@@ -139,7 +139,7 @@ public actor TransmissionClient: TorrentClient {
 
     public func testConnection() async throws -> String {
         let session = try await rpc("session-get")
-        let version = JSON.string(session["version"]) ?? "unknown"
+        let version = (session["version"] as? String) ?? "unknown"
         return "Transmission \(version)"
     }
 
@@ -222,7 +222,7 @@ public actor TransmissionClient: TorrentClient {
         do {
             if downloadDirectory == nil {
                 let session = try await rpc("session-get")
-                downloadDirectory = JSON.string(session["download-dir"])
+                downloadDirectory = (session["download-dir"] as? String)
             }
             guard let path = downloadDirectory else {
                 lastFreeSpaceFetch = now

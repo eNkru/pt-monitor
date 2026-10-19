@@ -175,8 +175,8 @@ public enum QBittorrentParser {
             guard let entry = value as? [String: Any] else { continue }
             result.append(TorrentSummary(
                 id: hash,
-                name: JSON.string(entry["name"]) ?? hash,
-                state: state(JSON.string(entry["state"])),
+                name: (entry["name"] as? String) ?? hash,
+                state: state((entry["state"] as? String)),
                 progress: TorrentSummary.clampedProgress((entry["progress"] as? NSNumber)?.doubleValue),
                 downSpeed: JSON.int64(entry["dlspeed"]) ?? 0,
                 upSpeed: JSON.int64(entry["upspeed"]) ?? 0,
@@ -224,7 +224,7 @@ public enum QBittorrentParser {
             activeTorrents: active,
             totalTorrents: torrents.count,
             freeSpace: freeSpace,
-            connectionState: connectionState(JSON.string(serverState["connection_status"])),
+            connectionState: connectionState((serverState["connection_status"] as? String)),
             fetchedAt: fetchedAt,
             torrents: TorrentSummary.sorted(summaries)
         )
@@ -344,8 +344,7 @@ public actor QBittorrentClient: TorrentClient {
     }
 
     private static func percentEncode(_ value: String) -> String {
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-._~")
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 }

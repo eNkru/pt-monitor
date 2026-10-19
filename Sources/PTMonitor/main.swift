@@ -7,7 +7,6 @@ import PTMonitorCore
 // argv is inspected before anything AppKit is touched:
 //   --selftest   run the in-binary checks, exit 0/1, no GUI
 //   --probe ...  fetch one server snapshot, print JSON, exit 0/1, no GUI
-//   --preview-panel <out.png>  render the panel from fixtures, exit 0/1
 //   (nothing)    start the menu bar agent (accessory policy, no window)
 //
 // Deployment target is macOS 12, so the status item must be an AppKit
@@ -25,14 +24,12 @@ func printUsage() {
     print("  \(appName)                     Start the menu bar agent")
     print("  \(appName) --selftest          Run the built-in checks and exit 0/1")
     print("  \(appName) --probe <type> ...  Fetch one server snapshot as JSON")
-    print("  \(appName) --preview-panel <out.png>")
-    print("                             Render the panel from fixtures (light + dark)")
     print("")
     print(ProbeRunner.usage)
 }
 
 if arguments.contains("--selftest") {
-    let result = SelfTest.run()
+    let result = await SelfTest.run()
     if result.isSuccess {
         print("selftest: OK (\(result.passed) checks passed)")
         exit(0)
@@ -47,15 +44,20 @@ if arguments.contains("--probe") {
     exit(code)
 }
 
-// Debug-only screenshot loop for the panel's visual work; never falls through
-// to the agent path.
-if arguments.contains("--preview-panel") {
-    exit(PanelPreview.run(arguments: arguments))
-}
-
 if arguments.contains("--help") || arguments.contains("-h") {
     printUsage()
     exit(0)
+}
+
+// Any other long option is a typo or a removed flag: refuse instead of
+// silently starting the agent, which looks like nothing happened. Single-dash
+// arguments are left alone: macOS routes `-AppleLanguages (zh-Hans)` and other
+// `NSArgumentDomain` overrides through argv, and those must still launch the app.
+let unknownOptions = arguments.filter { $0.hasPrefix("--") }
+if !unknownOptions.isEmpty {
+    FileHandle.standardError.write(Data("PTMonitor: unexpected argument(s) \(unknownOptions.joined(separator: " "))\n".utf8))
+    printUsage()
+    exit(2)
 }
 
 // Menu bar agent: accessory policy (no Dock icon), no window at launch.

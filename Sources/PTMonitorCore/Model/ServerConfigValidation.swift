@@ -95,70 +95,34 @@ public enum HostFieldParser {
 
 // MARK: - Preferences validation
 
-/// Raw, user-typed server fields before they are turned into a `ServerConfig`.
+/// Validates and normalises a `ServerConfig` before it is saved (R3, R7).
 ///
-/// `port` is a `String` because the preferences UI accepts free typing; it is
-/// validated here rather than in the view.
-public struct ServerConfigDraft: Equatable, Sendable {
-    public var id: UUID
-    public var kind: ServerKind
-    public var name: String
-    public var host: String
-    public var port: String
-    public var useTLS: Bool
-    public var allowInsecureTLS: Bool
-    public var username: String
-    public var isEnabled: Bool
-
-    public init(
-        id: UUID = UUID(),
-        kind: ServerKind,
-        name: String = "",
-        host: String = "",
-        port: String = "",
-        useTLS: Bool = false,
-        allowInsecureTLS: Bool = false,
-        username: String = "",
-        isEnabled: Bool = true
-    ) {
-        self.id = id
-        self.kind = kind
-        self.name = name
-        self.host = host
-        self.port = port
-        self.useTLS = useTLS
-        self.allowInsecureTLS = allowInsecureTLS
-        self.username = username
-        self.isEnabled = isEnabled
-    }
-}
-
-/// Validates and normalises a `ServerConfigDraft` before it is saved (R3, R7).
+/// `portText` is the preferences UI's free-typed port field, validated here
+/// rather than in the view. The passed config's `port` is only a placeholder —
+/// the field wins whenever it parses.
 public enum ServerConfigValidator {
-    /// A normalised config plus any adjustments the user should be told about.
+    /// A normalised config plus the one adjustment the user should be told about.
     public struct Validated: Equatable, Sendable {
         public var config: ServerConfig
-        public var notices: [String]
-        public init(config: ServerConfig, notices: [String]) {
+        public var notice: String?
+        public init(config: ServerConfig, notice: String?) {
             self.config = config
-            self.notices = notices
+            self.notice = notice
         }
     }
 
     /// - Throws: `ServerFailure.unreachable` with a readable message when a
     ///   field is invalid. The preferences UI shows `message` verbatim.
-    public static func validate(_ draft: ServerConfigDraft) throws -> Validated {
-        var notices: [String] = []
-
-        let rawHost = draft.host.trimmingCharacters(in: .whitespacesAndNewlines)
+    public static func validate(_ config: ServerConfig, portText: String) throws -> Validated {
+        let rawHost = config.host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !rawHost.isEmpty else {
             throw ServerFailure.unreachable(NSLocalizedString("enter a host name or IP address", comment: "validation"))
         }
 
-        let portText = draft.port.trimmingCharacters(in: .whitespacesAndNewlines)
+        let portText = portText.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackPort: Int
         if portText.isEmpty {
-            fallbackPort = draft.kind.defaultPort
+            fallbackPort = config.kind.defaultPort
         } else {
             guard let value = Int(portText), (1...65535).contains(value) else {
                 throw ServerFailure.unreachable(
@@ -168,35 +132,38 @@ public enum ServerConfigValidator {
         }
 
         let parsed = try HostFieldParser.parse(rawHost, defaultPort: fallbackPort)
+        // Only one notice is ever shown; the port adjustment keeps precedence,
+        // as it did when these were collected into an array and `.first` read.
+        var notice: String?
         if parsed.extractedPort && !portText.isEmpty {
-            notices.append(String(
+            notice = String(
                 format: NSLocalizedString("Used port %lld from the host field.", comment: "validation notice"),
-                parsed.port))
+                parsed.port)
         }
 
-        var useTLS = draft.useTLS
+        var useTLS = config.useTLS
         if let schemeIsTLS = parsed.schemeIsTLS {
-            if schemeIsTLS != useTLS {
-                notices.append(
-                    schemeIsTLS
-                        ? NSLocalizedString("Enabled HTTPS because the host starts with https://.", comment: "notice")
-                        : NSLocalizedString("Disabled HTTPS because the host starts with http://.", comment: "notice")
-                )
+            if schemeIsTLS != useTLS, notice == nil {
+                notice = schemeIsTLS
+                    ? NSLocalizedString("Enabled HTTPS because the host starts with https://.", comment: "notice")
+                    : NSLocalizedString("Disabled HTTPS because the host starts with http://.", comment: "notice")
             }
             useTLS = schemeIsTLS
         }
 
-        let config = ServerConfig(
-            id: draft.id,
-            kind: draft.kind,
-            name: draft.name.trimmingCharacters(in: .whitespacesAndNewlines),
-            host: parsed.host,
-            port: parsed.port,
-            useTLS: useTLS,
-            allowInsecureTLS: draft.allowInsecureTLS,
-            username: draft.username.trimmingCharacters(in: .whitespacesAndNewlines),
-            isEnabled: draft.isEnabled
+        return Validated(
+            config: ServerConfig(
+                id: config.id,
+                kind: config.kind,
+                name: config.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                host: parsed.host,
+                port: parsed.port,
+                useTLS: useTLS,
+                allowInsecureTLS: config.allowInsecureTLS,
+                username: config.username.trimmingCharacters(in: .whitespacesAndNewlines),
+                isEnabled: config.isEnabled
+            ),
+            notice: notice
         )
-        return Validated(config: config, notices: notices)
     }
 }

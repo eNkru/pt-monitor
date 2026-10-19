@@ -71,14 +71,14 @@ public final class MonitorStore: ObservableObject {
 
     // MARK: - Lifecycle
 
-    /// Starts polling the currently enabled servers. Safe to call repeatedly.
-    public func start() async {
-        await reconcile()
-    }
-
     /// Cancels every per-server task and waits for each to finish. Called on app
     /// termination; after this the store no longer polls.
     public func stop() async {
+        await cancelAllTasks()
+    }
+
+    /// Cancels and awaits every running per-server task.
+    private func cancelAllTasks() async {
         let running = Array(tasks.values)
         tasks.removeAll()
         for task in running { task.cancel() }
@@ -93,10 +93,7 @@ public final class MonitorStore: ObservableObject {
     /// must be rebuilt to pick up new credentials. Reconcile is user-triggered,
     /// not per-poll, so the cost is negligible.
     public func reconcile() async {
-        let running = Array(tasks.values)
-        tasks.removeAll()
-        for task in running { task.cancel() }
-        for task in running { await task.value }
+        await cancelAllTasks()
 
         let configs = settings.servers
         // Mirror the configuration into `statuses`: disabled servers become
@@ -134,13 +131,6 @@ public final class MonitorStore: ObservableObject {
                 }
             }
         }
-    }
-
-    /// Debug-only hook: publishes statuses directly instead of polling, so
-    /// `--preview-panel` can render the panel from fixture data. Production
-    /// never calls it — polling stays the only writer of `statuses` in the app.
-    public func setPreviewStatuses(_ statuses: [UUID: ServerStatus]) {
-        self.statuses = statuses
     }
 
     // MARK: - Menu bar helpers

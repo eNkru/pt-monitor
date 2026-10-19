@@ -12,8 +12,8 @@ import PTMonitorCore
 /// (R9 revision, see `.trellis/spec/macos/app-conventions.md` §10).
 enum L10n {
 
-    private static func s(_ key: String, comment: String = "") -> String {
-        NSLocalizedString(key, comment: comment)
+    private static func s(_ key: String) -> String {
+        NSLocalizedString(key, comment: "")
     }
 
     // MARK: - Panel header

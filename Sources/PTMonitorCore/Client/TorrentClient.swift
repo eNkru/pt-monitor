@@ -46,14 +46,4 @@ enum JSON {
         return nil
     }
 
-    static func int(_ value: Any?) -> Int? {
-        if let number = value as? NSNumber { return number.intValue }
-        if let int = value as? Int { return int }
-        if let string = value as? String { return Int(string) }
-        return nil
-    }
-
-    static func string(_ value: Any?) -> String? {
-        value as? String
-    }
 }

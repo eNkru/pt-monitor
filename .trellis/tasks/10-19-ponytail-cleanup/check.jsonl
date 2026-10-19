@@ -1,0 +1,6 @@
+{"check": "swift build 2>&1 | grep -i warning", "expect": "no output (0 warnings)"}
+{"check": "swift run PTMonitor --selftest", "expect": "exit 0, passed >= baseline"}
+{"check": "swift run PTMonitor --selftest -AppleLanguages '(zh-Hans)'", "expect": "exit 0 (no assertion depends on a localized string)"}
+{"check": "./scripts/build-app.sh", "expect": "bundle assembled, localization parity gate passes"}
+{"check": "grep -rn 'ServerConfigDraft\\|awaitBlocking\\|JSON\\.string\\|JSON\\.int(' Sources/", "expect": "no matches"}
+{"check": "git diff --stat", "expect": "net negative line count, no new files"}

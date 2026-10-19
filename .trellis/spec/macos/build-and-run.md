@@ -21,8 +21,6 @@ build/PTMonitor.app/Contents/MacOS/PTMonitor \
   --probe <qbittorrent|transmission> --host <h> --port <p> \
   [--user u] [--pass p] [--https] [--insecure]
 
-# debug-only: render the dropdown panel from fixtures, light + dark PNGs:
-swift run PTMonitor --preview-panel /tmp/panel.png   # also writes /tmp/panel-dark.png
 ```
 
 `swift test` is **forbidden** — XCTest is not shipped with Command Line Tools
@@ -34,8 +32,10 @@ checks live in `Sources/PTMonitorCore/Diagnose/SelfTest.swift` and run via
 
 ### 3.1 `--selftest` contract
 
-- `SelfTest.run() -> SelfTest.Result` with `isSuccess`, `passed: Int`,
-  `failure: String?`.
+- `SelfTest.run() async -> SelfTest.Result` with `isSuccess`, `passed: Int`,
+  `failure: String?`; `main.swift` awaits it at top level. Assertions go
+  through the shared `SelfTest.Checks` helpers (`expect`, `expectOptional`,
+  `expectContains`, `expectFailure`), not per-section copies.
 - `main.swift` exits `0` when `isSuccess`, otherwise writes the first failure
   to stderr and exits `1`.
 - Checks must be deterministic, fast, and free of network/GUI/Keychain side
@@ -128,11 +128,9 @@ Verified matrix:
 - Network, Keychain, and GUI behaviour is **not** covered by `--selftest`;
   cover it with the `--probe` mode against a real server (or the stub in §7) and
   the manual AC checklist.
-- **Panel appearance** is likewise not assertable in-binary: render it with
-  `--preview-panel <out.png>` (fixture torrents in every normalised state, one
-  name long enough to truncate) and look at the PNGs. The mode builds both
-  stores on a throwaway `UserDefaults` suite and never starts a poller, so it
-  touches no network, no Keychain, and none of the user's real settings.
+- **Panel appearance** is likewise not assertable in-binary: build the app
+  (`./scripts/build-app.sh`), open it, and look at the panel with a real server
+  (or the stub in §7) in light and dark mode. There is no fixture-render mode.
 - **Any change to `HTTPTransport` needs a run against the stub**, not just a
   green `--selftest`. Cookie/session behaviour lives entirely inside URLSession
   and is invisible to network-free checks — that is exactly how the

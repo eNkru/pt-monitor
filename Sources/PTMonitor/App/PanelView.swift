@@ -304,10 +304,10 @@ struct PanelView: View {
         .padding(.bottom, 3)
     }
 
-    private func note(_ text: String, isError: Bool = false) -> some View {
+    private func note(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 11))
-            .foregroundColor(isError ? .red : .secondary)
+            .foregroundColor(.secondary)
             .padding(.bottom, 6)
     }
 
@@ -408,10 +408,8 @@ struct PanelView: View {
         case .downloading: return .blue
         case .seeding: return .green
         case .stalled: return .orange
-        case .queued, .checking: return .secondary
-        case .paused: return .secondary
         case .error: return .red
-        case .other: return .secondary
+        case .queued, .checking, .paused, .other: return .secondary
         }
     }
 

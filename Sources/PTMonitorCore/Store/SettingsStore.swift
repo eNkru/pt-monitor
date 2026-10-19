@@ -186,37 +186,19 @@ public final class SettingsStore: ObservableObject {
     }
 
     private static func loadShowSpeeds(from defaults: UserDefaults) -> Bool {
-        guard defaults.object(forKey: Key.showSpeedsInMenuBar) != nil else {
-            return true
-        }
-        return defaults.bool(forKey: Key.showSpeedsInMenuBar)
+        defaults.object(forKey: Key.showSpeedsInMenuBar) as? Bool ?? true
     }
 
     /// Defaults to `false`: the full list is the established behaviour, so the
     /// filter is opt-in.
     private static func loadShowActiveTorrentsOnly(from defaults: UserDefaults) -> Bool {
-        guard defaults.object(forKey: Key.showActiveTorrentsOnly) != nil else {
-            return false
-        }
-        return defaults.bool(forKey: Key.showActiveTorrentsOnly)
+        defaults.object(forKey: Key.showActiveTorrentsOnly) as? Bool ?? false
     }
 
-    /// One-time migration read: `appLanguage` unset but a per-app
-    /// `AppleLanguages` override exists (e.g. written via `defaults write`
-    /// before the in-app switcher existed) → derive the choice from its first
-    /// entry so the picker shows reality instead of "Follow System". This
-    /// runs only when the switcher's own key is absent; later manual
-    /// `defaults write` calls are not fought over.
+    /// The persisted in-app language choice; an unset or unknown key means
+    /// "Follow System" (`AppleLanguages` is then untouched).
     private static func loadAppLanguage(from defaults: UserDefaults) -> AppLanguage {
-        if let raw = defaults.string(forKey: Key.appLanguage),
-           let stored = AppLanguage(rawValue: raw) {
-            return stored
-        }
-        if let codes = defaults.stringArray(forKey: Key.appleLanguages),
-           let first = codes.first,
-           let derived = AppLanguage(appleLanguageCode: first) {
-            return derived
-        }
-        return .system
+        defaults.string(forKey: Key.appLanguage)
+            .flatMap(AppLanguage.init(rawValue:)) ?? .system
     }
 }

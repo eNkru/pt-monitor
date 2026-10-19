@@ -34,13 +34,7 @@ public enum ByteRateFormatter {
             return "\(bytes) B/s"
         }
 
-        var value = Double(bytes)
-        var unitIndex = -1
-        while value >= binaryStep && unitIndex < units.count - 1 {
-            value /= binaryStep
-            unitIndex += 1
-        }
-
+        let (value, unitIndex) = scaled(bytes)
         let number: String
         if value < 100 {
             number = String(format: "%.1f", value)
@@ -58,13 +52,7 @@ public enum ByteRateFormatter {
             return "\(bytes) B"
         }
 
-        var value = Double(bytes)
-        var unitIndex = -1
-        while value >= binaryStep && unitIndex < units.count - 1 {
-            value /= binaryStep
-            unitIndex += 1
-        }
-
+        let (value, unitIndex) = scaled(bytes)
         let unit = units[unitIndex]
         if value < 10 {
             return String(format: "%.2f %@B", value, unit)
@@ -73,6 +61,18 @@ public enum ByteRateFormatter {
             return String(format: "%.1f %@B", value, unit)
         }
         return String(format: "%.0f %@B", value, unit)
+    }
+
+    /// Scales a byte count by 1024 into the largest fitting unit. Shared by
+    /// `rate` and `bytes`, which differ only in their suffix and decimals.
+    private static func scaled(_ bytes: Int64) -> (value: Double, unitIndex: Int) {
+        var value = Double(bytes)
+        var unitIndex = -1
+        while value >= binaryStep && unitIndex < units.count - 1 {
+            value /= binaryStep
+            unitIndex += 1
+        }
+        return (value, unitIndex)
     }
 
     /// `↓ 1.2M ↑ 340K` (full) or `↓1.2M ↑340K` (compact).

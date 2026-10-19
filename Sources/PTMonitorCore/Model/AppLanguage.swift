@@ -33,20 +33,4 @@ public enum AppLanguage: String, Codable, CaseIterable, Sendable {
         case .chinese: return ["zh-Hans"]
         }
     }
-
-    /// Maps the first entry of an existing `AppleLanguages` override back onto
-    /// a choice, so a pre-switcher manual `defaults write` shows truthfully in
-    /// the picker. Unknown or unshipped codes (e.g. "fr", "zh-Hant") return
-    /// nil, which the caller renders as "Follow System" rather than lying.
-    public init?(appleLanguageCode code: String) {
-        let normalized = code.lowercased()
-        if normalized == "en" || normalized.hasPrefix("en-") {
-            self = .english
-        } else if normalized == "zh"
-            || normalized.hasPrefix("zh-hans") || normalized.hasPrefix("zh-cn") {
-            self = .chinese
-        } else {
-            return nil
-        }
-    }
 }

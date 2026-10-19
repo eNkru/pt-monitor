@@ -177,8 +177,6 @@ proactive Basic-auth header). Do not delete the task-level forwarder as
   others (R6). Disabled servers are never contacted (R3/AC12).
 - Publish only when a status actually changes (ignore `fetchedAt`) to avoid
   menu-bar churn.
-- `MonitorStore.setPreviewStatuses(_:)` is the only way to publish without
-  polling, and it exists solely for `--preview-panel`; the app never calls it.
 - **Credential-failure backoff is mandatory.** qBittorrent bans an IP once
   `WebUI/MaxAuthenticationFailCount` logins have failed (default **5**) and
   counts every failed attempt until a login *succeeds* — the counter is **not

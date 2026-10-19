@@ -1,5 +1,4 @@
 import CoreGraphics
-import Dispatch
 import Foundation
 
 /// In-binary self-check harness.
@@ -32,112 +31,17 @@ public enum SelfTest {
         let message: String
     }
 
-    /// Runs every check, stopping at the first failure.
-    public static func run() -> Result {
+    /// Shared assertion helpers. One owner instead of a copy per check section;
+    /// generic over `Equatable`, which subsumes the old per-section `String`
+    /// variants. `passed` is the running count reported by `Result`.
+    struct Checks {
         var passed = 0
-        var failureMessage: String?
 
-        do {
-            try formatterChecks(&passed)
-            try clientChecks(&passed)
-            try rowChecks(&passed)
-            try storeChecks(&passed)
-            try transportChecks(&passed)
-            try validationChecks(&passed)
-            try probeChecks(&passed)
-        } catch let failure as Failure {
-            failureMessage = failure.message
-        } catch {
-            failureMessage = "unexpected error: \(error)"
-        }
-
-        return Result(passed: passed, failure: failureMessage)
-    }
-
-    // MARK: - Formatter checks (AC14)
-
-    private static func formatterChecks(_ passed: inout Int) throws {
-        func expect(_ name: String, _ actual: @autoclosure () -> String, _ expected: String) throws {
-            let value = actual()
-            guard value == expected else {
-                throw Failure(message: "\(name): expected \"\(expected)\", got \"\(value)\"")
-            }
-            passed += 1
-        }
-
-        func expectOptional(_ name: String, _ actual: @autoclosure () -> String?, _ expected: String?) throws {
-            let value = actual()
-            guard value == expected else {
-                throw Failure(message: "\(name): expected \(describe(expected)), got \(describe(value))")
-            }
-            passed += 1
-        }
-
-        // Rate formatting: unit thresholds and the decimal rule.
-        try expect("rate(0)", ByteRateFormatter.rate(0), "0 B/s")
-        try expect("rate(999)", ByteRateFormatter.rate(999), "999 B/s")
-        try expect("rate(1024) = 1.0 KB/s", ByteRateFormatter.rate(1024), "1.0K")
-        try expect("rate(1.2 MB/s)", ByteRateFormatter.rate(1_258_291), "1.2M")
-        try expect("rate(1.00 GB/s)", ByteRateFormatter.rate(1_073_741_824), "1.0G")
-        // One decimal below 100, zero decimals at 100 and above.
-        try expect("rate(99.0K)", ByteRateFormatter.rate(101_376), "99.0K")
-        try expect("rate(100K)", ByteRateFormatter.rate(102_400), "100K")
-
-        // Full vs compact menu bar text.
-        let down: Int64 = 1_258_291   // 1.2M
-        let up: Int64 = 348_160       // 340K
-        try expect("full speed text", ByteRateFormatter.speedText(down: down, up: up, form: .full),
-                   "↓ 1.2M ↑ 340K")
-        try expect("compact speed text", ByteRateFormatter.speedText(down: down, up: up, form: .compact),
-                   "↓1.2M ↑340K")
-
-        // Degradation ladder: full → compact → nil, never truncated mid-number.
-        let measure: (String) -> CGFloat = { CGFloat($0.count) * 7 }
-        try expectOptional("ladder: roomy",
-                           ByteRateFormatter.degradedSpeedText(down: down, up: up, availableWidth: 200, measure: measure),
-                           "↓ 1.2M ↑ 340K")
-        try expectOptional("ladder: tight",
-                           ByteRateFormatter.degradedSpeedText(down: down, up: up, availableWidth: 80, measure: measure),
-                           "↓1.2M ↑340K")
-        try expectOptional("ladder: too tight",
-                           ByteRateFormatter.degradedSpeedText(down: down, up: up, availableWidth: 40, measure: measure),
-                           nil)
-
-        // Byte counts (the free-space row).
-        try expect("bytes(0)", ByteRateFormatter.bytes(0), "0 B")
-        try expect("bytes(999)", ByteRateFormatter.bytes(999), "999 B")
-        try expect("bytes(412.5 GB)", ByteRateFormatter.bytes(442_918_502_400), "412 GB")
-        try expect("bytes(1.00 KB)", ByteRateFormatter.bytes(1024), "1.00 KB")
-    }
-
-    // MARK: - Transport error description (R6)
-
-    /// `HTTPTransport.describe` turns `URLError` codes into cause-specific,
-    /// actionable text; the ATS case matters on macOS 14+ where plain HTTP to
-    /// non-LAN addresses is blocked.
-    private static func transportChecks(_ passed: inout Int) throws {
-        func expect(_ name: String, _ actual: String, contains expected: String) throws {
-            guard actual.contains(expected) else {
-                throw Failure(message: "\(name): expected message containing \"\(expected)\", got \"\(actual)\"")
-            }
-            passed += 1
-        }
-
-        let ats = URLError(.appTransportSecurityRequiresSecureConnection)
-        try expect("transport: ATS block", HTTPTransport.describe(ats), contains: "App Transport Security")
-        try expect("transport: ATS hint names LAN", HTTPTransport.describe(ats), contains: "192.168")
-        try expect("transport: timeout", HTTPTransport.describe(URLError(.timedOut)), contains: "timed out")
-        try expect("transport: DNS", HTTPTransport.describe(URLError(.cannotFindHost)), contains: "host not found")
-        try expect("transport: refused", HTTPTransport.describe(URLError(.cannotConnectToHost)), contains: "connection refused")
-        try expect("transport: TLS", HTTPTransport.describe(URLError(.serverCertificateUntrusted)), contains: "self-signed")
-    }
-
-    // MARK: - Config validation / host parsing (step 12)
-
-    /// `HostFieldParser` and `ServerConfigValidator` normalise the same host a
-    /// user could type in the preferences window or pass to `--probe`.
-    private static func validationChecks(_ passed: inout Int) throws {
-        func expect<T: Equatable>(_ name: String, _ actual: @autoclosure () -> T, _ expected: T) throws {
+        mutating func expect<T: Equatable>(
+            _ name: String,
+            _ actual: @autoclosure () -> T,
+            _ expected: T
+        ) throws {
             let value = actual()
             guard value == expected else {
                 throw Failure(message: "\(name): expected \(expected), got \(value)")
@@ -145,7 +49,26 @@ public enum SelfTest {
             passed += 1
         }
 
-        func expectFailure(_ name: String, _ body: () throws -> Void) throws {
+        mutating func expectOptional<T: Equatable>(
+            _ name: String,
+            _ actual: @autoclosure () -> T?,
+            _ expected: T?
+        ) throws {
+            let value = actual()
+            guard value == expected else {
+                throw Failure(message: "\(name): expected \(Self.describe(expected)), got \(Self.describe(value))")
+            }
+            passed += 1
+        }
+
+        mutating func expectContains(_ name: String, _ actual: String, contains expected: String) throws {
+            guard actual.contains(expected) else {
+                throw Failure(message: "\(name): expected message containing \"\(expected)\", got \"\(actual)\"")
+            }
+            passed += 1
+        }
+
+        mutating func expectFailure(_ name: String, _ body: () throws -> Void) throws {
             do {
                 try body()
                 throw Failure(message: "\(name): expected a failure, but it succeeded")
@@ -157,72 +80,161 @@ public enum SelfTest {
             }
         }
 
+        static func describe<T>(_ value: T?) -> String {
+            value.map { "\($0)" } ?? "nil"
+        }
+    }
+
+    /// Runs every check, stopping at the first failure.
+    public static func run() async -> Result {
+        var checks = Checks()
+        var failureMessage: String?
+
+        do {
+            try formatterChecks(&checks)
+            try await clientChecks(&checks)
+            try rowChecks(&checks)
+            try await storeChecks(&checks)
+            try transportChecks(&checks)
+            try validationChecks(&checks)
+            try probeChecks(&checks)
+        } catch let failure as Failure {
+            failureMessage = failure.message
+        } catch {
+            failureMessage = "unexpected error: \(error)"
+        }
+
+        return Result(passed: checks.passed, failure: failureMessage)
+    }
+
+    // MARK: - Formatter checks (AC14)
+
+    private static func formatterChecks(_ c: inout Checks) throws {
+        // Rate formatting: unit thresholds and the decimal rule.
+        try c.expect("rate(0)", ByteRateFormatter.rate(0), "0 B/s")
+        try c.expect("rate(999)", ByteRateFormatter.rate(999), "999 B/s")
+        try c.expect("rate(1024) = 1.0 KB/s", ByteRateFormatter.rate(1024), "1.0K")
+        try c.expect("rate(1.2 MB/s)", ByteRateFormatter.rate(1_258_291), "1.2M")
+        try c.expect("rate(1.00 GB/s)", ByteRateFormatter.rate(1_073_741_824), "1.0G")
+        // One decimal below 100, zero decimals at 100 and above.
+        try c.expect("rate(99.0K)", ByteRateFormatter.rate(101_376), "99.0K")
+        try c.expect("rate(100K)", ByteRateFormatter.rate(102_400), "100K")
+
+        // Full vs compact menu bar text.
+        let down: Int64 = 1_258_291   // 1.2M
+        let up: Int64 = 348_160       // 340K
+        try c.expect("full speed text", ByteRateFormatter.speedText(down: down, up: up, form: .full),
+                   "↓ 1.2M ↑ 340K")
+        try c.expect("compact speed text", ByteRateFormatter.speedText(down: down, up: up, form: .compact),
+                   "↓1.2M ↑340K")
+
+        // Degradation ladder: full → compact → nil, never truncated mid-number.
+        let measure: (String) -> CGFloat = { CGFloat($0.count) * 7 }
+        try c.expectOptional("ladder: roomy",
+                           ByteRateFormatter.degradedSpeedText(down: down, up: up, availableWidth: 200, measure: measure),
+                           "↓ 1.2M ↑ 340K")
+        try c.expectOptional("ladder: tight",
+                           ByteRateFormatter.degradedSpeedText(down: down, up: up, availableWidth: 80, measure: measure),
+                           "↓1.2M ↑340K")
+        try c.expectOptional("ladder: too tight",
+                           ByteRateFormatter.degradedSpeedText(down: down, up: up, availableWidth: 40, measure: measure),
+                           nil)
+
+        // Byte counts (the free-space row).
+        try c.expect("bytes(0)", ByteRateFormatter.bytes(0), "0 B")
+        try c.expect("bytes(999)", ByteRateFormatter.bytes(999), "999 B")
+        try c.expect("bytes(412.5 GB)", ByteRateFormatter.bytes(442_918_502_400), "412 GB")
+        try c.expect("bytes(1.00 KB)", ByteRateFormatter.bytes(1024), "1.00 KB")
+    }
+
+    // MARK: - Transport error description (R6)
+
+    /// `HTTPTransport.describe` turns `URLError` codes into cause-specific,
+    /// actionable text; the ATS case matters on macOS 14+ where plain HTTP to
+    /// non-LAN addresses is blocked.
+    private static func transportChecks(_ c: inout Checks) throws {
+        let ats = URLError(.appTransportSecurityRequiresSecureConnection)
+        try c.expectContains("transport: ATS block", HTTPTransport.describe(ats), contains: "App Transport Security")
+        try c.expectContains("transport: ATS hint names LAN", HTTPTransport.describe(ats), contains: "192.168")
+        try c.expectContains("transport: timeout", HTTPTransport.describe(URLError(.timedOut)), contains: "timed out")
+        try c.expectContains("transport: DNS", HTTPTransport.describe(URLError(.cannotFindHost)), contains: "host not found")
+        try c.expectContains("transport: refused", HTTPTransport.describe(URLError(.cannotConnectToHost)), contains: "connection refused")
+        try c.expectContains("transport: TLS", HTTPTransport.describe(URLError(.serverCertificateUntrusted)), contains: "self-signed")
+    }
+
+    // MARK: - Config validation / host parsing (step 12)
+
+    /// `HostFieldParser` and `ServerConfigValidator` normalise the same host a
+    /// user could type in the preferences window or pass to `--probe`.
+    private static func validationChecks(_ c: inout Checks) throws {
         // Plain host keeps the supplied port.
         let plain = try HostFieldParser.parse("nas.local", defaultPort: 8080)
-        try expect("host: plain name", plain.host, "nas.local")
-        try expect("host: default port", plain.port, 8080)
-        try expect("host: no scheme", plain.schemeIsTLS, nil)
+        try c.expect("host: plain name", plain.host, "nas.local")
+        try c.expect("host: default port", plain.port, 8080)
+        try c.expect("host: no scheme", plain.schemeIsTLS, nil)
 
         // host:port splits, whitespace is trimmed.
         let withPort = try HostFieldParser.parse("  192.168.1.50:9091 ", defaultPort: 8080)
-        try expect("host:port host", withPort.host, "192.168.1.50")
-        try expect("host:port port", withPort.port, 9091)
-        try expect("host:port extracted", withPort.extractedPort, true)
+        try c.expect("host:port host", withPort.host, "192.168.1.50")
+        try c.expect("host:port port", withPort.port, 9091)
+        try c.expect("host:port extracted", withPort.extractedPort, true)
 
         // A pasted URL parses; https implies TLS.
         let url = try HostFieldParser.parse("https://nas.local:8443/", defaultPort: 8080)
-        try expect("url host", url.host, "nas.local")
-        try expect("url port", url.port, 8443)
-        try expect("url scheme tls", url.schemeIsTLS, true)
+        try c.expect("url host", url.host, "nas.local")
+        try c.expect("url port", url.port, 8443)
+        try c.expect("url scheme tls", url.schemeIsTLS, true)
 
         // ws:// is rejected with a readable message (design §4.3).
-        try expectFailure("host: ws scheme rejected") {
+        try c.expectFailure("host: ws scheme rejected") {
             _ = try HostFieldParser.parse("ws://nas.local:8080", defaultPort: 8080)
         }
 
         // Validator: normalises and reports the scheme/port adjustments.
-        let draft = ServerConfigDraft(
+        let typed = ServerConfig(
             kind: .transmission,
             name: "  NAS  ",
             host: "http://nas.local:9091",
-            port: "",
             useTLS: true,
             username: "  admin "
         )
-        let validated = try ServerConfigValidator.validate(draft)
-        try expect("validator host", validated.config.host, "nas.local")
-        try expect("validator port", validated.config.port, 9091)
-        try expect("validator https disabled by http scheme", validated.config.useTLS, false)
-        try expect("validator trims name", validated.config.name, "NAS")
-        try expect("validator trims username", validated.config.username, "admin")
-        try expect("validator notice count", validated.notices.count, 1)
+        let validated = try ServerConfigValidator.validate(typed, portText: "")
+        try c.expect("validator host", validated.config.host, "nas.local")
+        try c.expect("validator port", validated.config.port, 9091)
+        try c.expect("validator https disabled by http scheme", validated.config.useTLS, false)
+        try c.expect("validator trims name", validated.config.name, "NAS")
+        try c.expect("validator trims username", validated.config.username, "admin")
+        try c.expect("validator reports the scheme adjustment", validated.notice != nil, true)
+
+        // A port typed into the host field wins over the port field, and is
+        // reported. Only the presence is asserted: the text is localized.
+        let portFromField = try ServerConfigValidator.validate(
+            ServerConfig(kind: .qbittorrent, host: "nas.local:9091"),
+            portText: "8080"
+        )
+        try c.expect("validator host-field port wins", portFromField.config.port, 9091)
+        try c.expect("validator port adjustment is reported", portFromField.notice != nil, true)
 
         // Invalid port text is a readable failure.
-        try expectFailure("validator rejects bad port") {
-            _ = try ServerConfigValidator.validate(ServerConfigDraft(kind: .qbittorrent, host: "nas", port: "70000"))
+        try c.expectFailure("validator rejects bad port") {
+            _ = try ServerConfigValidator.validate(
+                ServerConfig(kind: .qbittorrent, host: "nas"), portText: "70000")
         }
-        try expectFailure("validator rejects empty host") {
-            _ = try ServerConfigValidator.validate(ServerConfigDraft(kind: .qbittorrent, host: "   "))
+        try c.expectFailure("validator rejects empty host") {
+            _ = try ServerConfigValidator.validate(
+                ServerConfig(kind: .qbittorrent, host: "   "), portText: "")
         }
     }
 
     // MARK: - Probe mode (step 10, AC13)
 
-    private static func probeChecks(_ passed: inout Int) throws {
-        func expect<T: Equatable>(_ name: String, _ actual: @autoclosure () -> T, _ expected: T) throws {
-            let value = actual()
-            guard value == expected else {
-                throw Failure(message: "\(name): expected \(expected), got \(value)")
-            }
-            passed += 1
-        }
-
+    private static func probeChecks(_ c: inout Checks) throws {
         func expectUsageError(_ name: String, _ arguments: [String]) throws {
             do {
                 _ = try ProbeRunner.parse(arguments)
                 throw Failure(message: "\(name): expected a usage error")
             } catch is ProbeRunner.UsageError {
-                passed += 1
+                c.passed += 1
             }
         }
 
@@ -230,15 +242,15 @@ public enum SelfTest {
         let options = try ProbeRunner.parse([
             "--https", "--host", "nas.local", "--probe", "qbittorrent", "--port", "8080", "--insecure",
         ])
-        try expect("probe kind", options.kind, .qbittorrent)
-        try expect("probe host", options.host, "nas.local")
-        try expect("probe port", options.port, 8080)
-        try expect("probe https", options.useTLS, true)
-        try expect("probe insecure", options.allowInsecureTLS, true)
+        try c.expect("probe kind", options.kind, .qbittorrent)
+        try c.expect("probe host", options.host, "nas.local")
+        try c.expect("probe port", options.port, 8080)
+        try c.expect("probe https", options.useTLS, true)
+        try c.expect("probe insecure", options.allowInsecureTLS, true)
 
         // Default port comes from the kind.
         let defaulted = try ProbeRunner.parse(["--host", "nas", "--probe", "transmission"])
-        try expect("probe default port", defaulted.port, 9091)
+        try c.expect("probe default port", defaulted.port, 9091)
 
         try expectUsageError("probe rejects unknown type", ["--probe", "deluge", "--host", "nas"])
         try expectUsageError("probe requires host", ["--probe", "qbittorrent"])
@@ -254,11 +266,11 @@ public enum SelfTest {
         let json = try ProbeRunner.encode(snapshot: snapshot, config: config)
         let root = try JSON.object(json)
         let snapshotObject = root["snapshot"] as? [String: Any] ?? [:]
-        try expect("probe json downSpeed", JSON.int64(snapshotObject["downSpeed"]), 1_258_291)
-        try expect("probe json freeSpace", JSON.int64(snapshotObject["freeSpace"]), 442_918_502_400)
-        try expect("probe json connection state", snapshotObject["connectionState"] as? String, "connected")
+        try c.expect("probe json downSpeed", JSON.int64(snapshotObject["downSpeed"]), 1_258_291)
+        try c.expect("probe json freeSpace", JSON.int64(snapshotObject["freeSpace"]), 442_918_502_400)
+        try c.expect("probe json connection state", snapshotObject["connectionState"] as? String, "connected")
         let serverObject = root["server"] as? [String: Any] ?? [:]
-        try expect("probe json server kind", serverObject["kind"] as? String, "qbittorrent")
+        try c.expect("probe json server kind", serverObject["kind"] as? String, "qbittorrent")
 
         // A nil free space encodes as JSON null, not a missing key.
         let noFree = try ProbeRunner.encode(
@@ -267,11 +279,7 @@ public enum SelfTest {
         )
         let noFreeRoot = try JSON.object(noFree)
         let noFreeSnapshot = noFreeRoot["snapshot"] as? [String: Any] ?? [:]
-        try expect("probe json nil freeSpace is null", noFreeSnapshot["freeSpace"] is NSNull, true)
-    }
-
-    private static func describe(_ value: String?) -> String {
-        value.map { "\"\($0)\"" } ?? "nil"
+        try c.expect("probe json nil freeSpace is null", noFreeSnapshot["freeSpace"] is NSNull, true)
     }
 
     // MARK: - Client checks (steps 5–6)
@@ -282,42 +290,7 @@ public enum SelfTest {
         var value: T?
     }
 
-    /// Bridges an async check into the synchronous harness. The check only uses
-    /// injected closures, so it cannot deadlock on the main thread.
-    private static func awaitBlocking<T>(_ operation: @escaping @Sendable () async throws -> T) throws -> T {
-        let semaphore = DispatchSemaphore(value: 0)
-        let box = Box<Swift.Result<T, Error>>()
-        Task {
-            do {
-                box.value = .success(try await operation())
-            } catch {
-                box.value = .failure(error)
-            }
-            semaphore.signal()
-        }
-        guard semaphore.wait(timeout: .now() + 10) == .success, let result = box.value else {
-            throw Failure(message: "async check did not finish within 10s")
-        }
-        return try result.get()
-    }
-
-    private static func clientChecks(_ passed: inout Int) throws {
-        func expect<T: Equatable>(_ name: String, _ actual: @autoclosure () -> T, _ expected: T) throws {
-            let value = actual()
-            guard value == expected else {
-                throw Failure(message: "\(name): expected \(expected), got \(value)")
-            }
-            passed += 1
-        }
-
-        func expectOptional<T: Equatable>(_ name: String, _ actual: @autoclosure () -> T?, _ expected: T?) throws {
-            let value = actual()
-            guard value == expected else {
-                throw Failure(message: "\(name): expected \(describeOptional(expected)), got \(describeOptional(value))")
-            }
-            passed += 1
-        }
-
+    private static func clientChecks(_ c: inout Checks) async throws {
         // --- qBittorrent: recorded sync/maindata fixture (research/apis.md §1.3) ---
         // Four torrents: 3 active (downloading, stalledUP, uploading), 1 paused.
         let mainData = """
@@ -344,24 +317,24 @@ public enum SelfTest {
             fromMainData: Data(mainData.utf8),
             webAPIVersion: WebAPIVersion(major: 2, minor: 1, patch: 1)
         )
-        try expect("qb maindata down speed", gated.downSpeed, 1_258_291)
-        try expect("qb maindata up speed", gated.upSpeed, 348_160)
-        try expect("qb maindata connection state", gated.connectionState, ConnectionState.connected)
-        try expect("qb maindata active torrents", gated.activeTorrents, 3)
-        try expect("qb maindata total torrents", gated.totalTorrents, 4)
-        try expect("qb maindata free space (>=2.1.1)", gated.freeSpace, 442_918_502_400)
+        try c.expect("qb maindata down speed", gated.downSpeed, 1_258_291)
+        try c.expect("qb maindata up speed", gated.upSpeed, 348_160)
+        try c.expect("qb maindata connection state", gated.connectionState, ConnectionState.connected)
+        try c.expect("qb maindata active torrents", gated.activeTorrents, 3)
+        try c.expect("qb maindata total torrents", gated.totalTorrents, 4)
+        try c.expect("qb maindata free space (>=2.1.1)", gated.freeSpace, 442_918_502_400)
 
         // webapiVersion < 2.1.1 → free space is gated to nil, other fields intact.
         let ungated = try QBittorrentParser.snapshot(
             fromMainData: Data(mainData.utf8),
             webAPIVersion: WebAPIVersion(major: 2, minor: 0, patch: 2)
         )
-        try expectOptional("qb maindata free space gated (<2.1.1)", ungated.freeSpace, nil)
-        try expect("qb maindata down speed still parsed", ungated.downSpeed, 1_258_291)
+        try c.expectOptional("qb maindata free space gated (<2.1.1)", ungated.freeSpace, nil)
+        try c.expect("qb maindata down speed still parsed", ungated.downSpeed, 1_258_291)
 
         // Version parsing and the pre-2.0 rejection threshold.
-        try expect("qb webapi version parse", QBittorrentParser.webAPIVersion("2.11.2"), WebAPIVersion(major: 2, minor: 11, patch: 2))
-        try expect(
+        try c.expect("qb webapi version parse", QBittorrentParser.webAPIVersion("2.11.2"), WebAPIVersion(major: 2, minor: 11, patch: 2))
+        try c.expect(
             "qb webapi 2.0 accepted, 1.9 rejected",
             (QBittorrentParser.webAPIVersion("2.0.0") ?? WebAPIVersion.v2_0_0) >= WebAPIVersion.v2_0_0,
             true
@@ -370,26 +343,26 @@ public enum SelfTest {
         // --- qBittorrent login: status moved from body to status code in 5.2 ---
         // ≤ 5.1: 200 "Ok." / 200 "Fails.". 5.2+: 204 (no body) / 401.
         let fails = QBittorrentParser.loginFailure(statusCode: 200, body: "Fails.")
-        try expect("qb 200 Fails. -> auth", fails?.kindLabel, "auth failed")
-        try expect("qb 200 Ok. -> success", QBittorrentParser.loginFailure(statusCode: 200, body: "Ok.") == nil, true)
-        try expect(
+        try c.expect("qb 200 Fails. -> auth", fails?.kindLabel, "auth failed")
+        try c.expect("qb 200 Ok. -> success", QBittorrentParser.loginFailure(statusCode: 200, body: "Ok.") == nil, true)
+        try c.expect(
             "qb 5.2 login 204 -> success",
             QBittorrentParser.loginFailure(statusCode: 204, body: "") == nil,
             true
         )
-        try expect(
+        try c.expect(
             "qb 5.2 login 401 -> auth",
             QBittorrentParser.loginFailure(statusCode: 401, body: "Unauthorized")?.kindLabel,
             "auth failed"
         )
-        try expect(
+        try c.expect(
             "qb login 200 blank body -> unexpected response",
             QBittorrentParser.loginFailure(statusCode: 200, body: "")?.kindLabel,
             "unexpected response"
         )
         // Only `auth/login` can be banned: the server checks the ban before it
         // looks at the credentials.
-        try expect(
+        try c.expect(
             "qb login 403 -> banned",
             QBittorrentParser.loginFailure(statusCode: 403, body: "")?.kindLabel,
             "banned"
@@ -398,22 +371,22 @@ public enum SelfTest {
         // private API call made without a session with 403
         // (webapplication.cpp: `!session() && !isPublicAPI`). Conflating the two
         // once reported a broken session cookie as "the server banned this IP".
-        try expect(
+        try c.expect(
             "qb non-login 403 -> session problem, not a ban",
             QBittorrentParser.endpointFailure(statusCode: 403, context: "sync/maindata")?.kindLabel,
             "unexpected response"
         )
-        try expect(
+        try c.expect(
             "qb non-login 401 -> auth",
             QBittorrentParser.endpointFailure(statusCode: 401, context: "sync/maindata")?.kindLabel,
             "auth failed"
         )
-        try expect(
+        try c.expect(
             "qb non-login 200 -> no failure",
             QBittorrentParser.endpointFailure(statusCode: 200, context: "sync/maindata") == nil,
             true
         )
-        try expect(
+        try c.expect(
             "qb login 403 and non-login 403 are different causes",
             QBittorrentParser.loginFailure(statusCode: 403, body: "") == QBittorrentParser.endpointFailure(statusCode: 403, context: "sync/maindata"),
             false
@@ -436,24 +409,24 @@ public enum SelfTest {
         }
         """
         let tx = try TransmissionParser.snapshot(fromResponseBody: Data(sessionStats.utf8))
-        try expect("tx session-stats down speed", tx.downSpeed, 1_258_291)
-        try expect("tx session-stats up speed", tx.upSpeed, 348_160)
-        try expect("tx session-stats active torrents", tx.activeTorrents, 3)
-        try expect("tx session-stats total torrents", tx.totalTorrents, 7)
-        try expect("tx session-stats connection state", tx.connectionState, ConnectionState.connected)
+        try c.expect("tx session-stats down speed", tx.downSpeed, 1_258_291)
+        try c.expect("tx session-stats up speed", tx.upSpeed, 348_160)
+        try c.expect("tx session-stats active torrents", tx.activeTorrents, 3)
+        try c.expect("tx session-stats total torrents", tx.totalTorrents, 7)
+        try c.expect("tx session-stats connection state", tx.connectionState, ConnectionState.connected)
 
         // HTTP 200 with result != "success" must still be a failure.
         do {
             _ = try TransmissionParser.snapshot(
                 fromResponseBody: Data("{\"result\":\"permission denied\",\"arguments\":{}}".utf8)
             )
-            try expect("tx non-success result throws", false, true)
+            try c.expect("tx non-success result throws", false, true)
         } catch let failure as ServerFailure {
-            try expect("tx non-success result -> server error", failure.kindLabel, "server error")
+            try c.expect("tx non-success result -> server error", failure.kindLabel, "server error")
         }
 
         // free-space `size-bytes` parsing.
-        try expectOptional(
+        try c.expectOptional(
             "tx free-space size-bytes",
             TransmissionParser.freeSpace(fromArguments: ["path": "/volume1/downloads", "size-bytes": 442_918_502_400]),
             442_918_502_400
@@ -464,51 +437,47 @@ public enum SelfTest {
         // once and the id is stored.
         let retryCounter = Box<Int>()
         retryCounter.value = 0
-        let outcome = try awaitBlocking { () -> SessionIdHandshake.Outcome in
-            try await SessionIdHandshake.run(initialSessionId: nil) { _ in
-                retryCounter.value = (retryCounter.value ?? 0) + 1
-                if retryCounter.value == 1 {
-                    return HTTPResponse(
-                        statusCode: 409,
-                        headers: [SessionIdHandshake.headerField: "sess-abc"],
-                        body: Data()
-                    )
-                }
-                return HTTPResponse(statusCode: 200, headers: [:], body: Data("{}".utf8))
+        let outcome = try await SessionIdHandshake.run(initialSessionId: nil) { _ in
+            retryCounter.value = (retryCounter.value ?? 0) + 1
+            if retryCounter.value == 1 {
+                return HTTPResponse(
+                    statusCode: 409,
+                    headers: [SessionIdHandshake.headerField: "sess-abc"],
+                    body: Data()
+                )
             }
+            return HTTPResponse(statusCode: 200, headers: [:], body: Data("{}".utf8))
         }
-        try expect("409 handshake retried exactly once", retryCounter.value ?? -1, 2)
-        try expect("409 handshake stored the session id", outcome.sessionId, "sess-abc")
-        try expect("409 handshake final status", outcome.response.statusCode, 200)
+        try c.expect("409 handshake retried exactly once", retryCounter.value ?? -1, 2)
+        try c.expect("409 handshake stored the session id", outcome.sessionId, "sess-abc")
+        try c.expect("409 handshake final status", outcome.response.statusCode, 200)
 
         // A second 409 does not recurse: only two requests are ever sent.
         let repeatedCounter = Box<Int>()
         repeatedCounter.value = 0
-        let repeated = try awaitBlocking { () -> SessionIdHandshake.Outcome in
-            try await SessionIdHandshake.run(initialSessionId: nil) { _ in
-                repeatedCounter.value = (repeatedCounter.value ?? 0) + 1
-                return HTTPResponse(
-                    statusCode: 409,
-                    headers: [SessionIdHandshake.headerField: "sess-\(repeatedCounter.value ?? 0)"],
-                    body: Data()
-                )
-            }
+        let repeated = try await SessionIdHandshake.run(initialSessionId: nil) { _ in
+            repeatedCounter.value = (repeatedCounter.value ?? 0) + 1
+            return HTTPResponse(
+                statusCode: 409,
+                headers: [SessionIdHandshake.headerField: "sess-\(repeatedCounter.value ?? 0)"],
+                body: Data()
+            )
         }
-        try expect("repeated 409 does not recurse", repeatedCounter.value ?? -1, 2)
-        try expect("repeated 409 surfaces as 409", repeated.response.statusCode, 409)
+        try c.expect("repeated 409 does not recurse", repeatedCounter.value ?? -1, 2)
+        try c.expect("repeated 409 surfaces as 409", repeated.response.statusCode, 409)
 
         // The pure decision itself: a second 409 (hasRetried) never retries.
-        try expect(
+        try c.expect(
             "step: first 409 retries",
             SessionIdHandshake.step(statusCode: 409, sessionIdHeader: "abc", hasRetried: false).shouldRetry,
             true
         )
-        try expect(
+        try c.expect(
             "step: second 409 does not retry",
             SessionIdHandshake.step(statusCode: 409, sessionIdHeader: "abc", hasRetried: true).shouldRetry,
             false
         )
-        try expect(
+        try c.expect(
             "step: 200 does not retry",
             SessionIdHandshake.step(statusCode: 200, sessionIdHeader: nil, hasRetried: false).shouldRetry,
             false
@@ -528,15 +497,15 @@ public enum SelfTest {
             ("somethingNewInAVfutureVersion", .other)
         ]
         for (raw, expected) in qbStateTable {
-            try expect("qb state \(raw)", QBittorrentParser.state(raw), expected)
+            try c.expect("qb state \(raw)", QBittorrentParser.state(raw), expected)
         }
 
         // qBittorrent eta: `8640000` is the "infinite" sentinel, negatives are
         // unknown (design §6.1).
-        try expectOptional("qb eta infinite sentinel", QBittorrentParser.etaSeconds(8_640_000), nil)
-        try expectOptional("qb eta negative", QBittorrentParser.etaSeconds(-1), nil)
-        try expectOptional("qb eta absent", QBittorrentParser.etaSeconds(nil), nil)
-        try expectOptional("qb eta valid", QBittorrentParser.etaSeconds(3600), 3600)
+        try c.expectOptional("qb eta infinite sentinel", QBittorrentParser.etaSeconds(8_640_000), nil)
+        try c.expectOptional("qb eta negative", QBittorrentParser.etaSeconds(-1), nil)
+        try c.expectOptional("qb eta absent", QBittorrentParser.etaSeconds(nil), nil)
+        try c.expectOptional("qb eta valid", QBittorrentParser.etaSeconds(3600), 3600)
 
         // qBittorrent summaries: name fallback to the hash, speeds, clamped
         // progress, and the fixed sort in `TransferSnapshot.torrents`.
@@ -555,24 +524,24 @@ public enum SelfTest {
             ]
         ]
         var qbSummaries = QBittorrentParser.summaries(fromTorrents: qbTorrents)
-        try expect("qb summaries count", qbSummaries.count, 3)
+        try c.expect("qb summaries count", qbSummaries.count, 3)
         let qbDownloading = qbSummaries.first { $0.name == "Downloading ISO" }
-        try expectOptional("qb summary state", qbDownloading?.state, TorrentState.downloading)
-        try expectOptional("qb summary down speed", qbDownloading?.downSpeed, 1_258_291)
-        try expectOptional("qb summary eta", qbDownloading?.etaSeconds, 1800)
+        try c.expectOptional("qb summary state", qbDownloading?.state, TorrentState.downloading)
+        try c.expectOptional("qb summary down speed", qbDownloading?.downSpeed, 1_258_291)
+        try c.expectOptional("qb summary eta", qbDownloading?.etaSeconds, 1800)
         let qbUnnamed = qbSummaries.first { $0.id == "cccc000000000000000000000000000000000000" }
-        try expectOptional("qb summary name falls back to hash", qbUnnamed?.name, "cccc000000000000000000000000000000000000")
-        try expectOptional("qb summary error state", qbUnnamed?.state, TorrentState.error)
-        try expectOptional("qb summary progress clamped", qbUnnamed?.progress, 1.0)
+        try c.expectOptional("qb summary name falls back to hash", qbUnnamed?.name, "cccc000000000000000000000000000000000000")
+        try c.expectOptional("qb summary error state", qbUnnamed?.state, TorrentState.error)
+        try c.expectOptional("qb summary progress clamped", qbUnnamed?.progress, 1.0)
         let qbSeeding = qbSummaries.first { $0.name == "Seeding ISO" }
-        try expectOptional("qb summary infinite eta is nil", qbSeeding?.etaSeconds, nil)
+        try c.expectOptional("qb summary infinite eta is nil", qbSeeding?.etaSeconds, nil)
 
         // Fixed sort (design §6.1): downloading first, then seeding, then the
         // rest; within a group by down speed desc.
         qbSummaries = TorrentSummary.sorted(qbSummaries)
-        try expect("qb sort: downloading first", qbSummaries.first?.name, "Downloading ISO")
-        try expect("qb sort: seeding second", qbSummaries.dropFirst().first?.name, "Seeding ISO")
-        try expect("qb sort: errored last", qbSummaries.last?.id, "cccc000000000000000000000000000000000000")
+        try c.expect("qb sort: downloading first", qbSummaries.first?.name, "Downloading ISO")
+        try c.expect("qb sort: seeding second", qbSummaries.dropFirst().first?.name, "Seeding ISO")
+        try c.expect("qb sort: errored last", qbSummaries.last?.id, "cccc000000000000000000000000000000000000")
 
         // Transmission `status` integers (research/apis.md §2.2, design §6.1).
         let txStatusTable: [(Int?, TorrentState)] = [
@@ -581,13 +550,13 @@ public enum SelfTest {
             (nil, .other), (99, .other)
         ]
         for (raw, expected) in txStatusTable {
-            try expect("tx status \(raw.map(String.init) ?? "nil")", TransmissionParser.state(status: raw), expected)
+            try c.expect("tx status \(raw.map(String.init) ?? "nil")", TransmissionParser.state(status: raw), expected)
         }
 
         // Transmission eta: -1/-2 are sentinels (design §6.1).
-        try expectOptional("tx eta -1 sentinel", TransmissionParser.etaSeconds(-1), nil)
-        try expectOptional("tx eta -2 sentinel", TransmissionParser.etaSeconds(-2), nil)
-        try expectOptional("tx eta valid", TransmissionParser.etaSeconds(7200), 7200)
+        try c.expectOptional("tx eta -1 sentinel", TransmissionParser.etaSeconds(-1), nil)
+        try c.expectOptional("tx eta -2 sentinel", TransmissionParser.etaSeconds(-2), nil)
+        try c.expectOptional("tx eta valid", TransmissionParser.etaSeconds(7200), 7200)
 
         // Transmission summaries: `error != 0` overrides the status mapping.
         let txTorrents: [Any] = [
@@ -601,44 +570,40 @@ public enum SelfTest {
             ]
         ]
         let txSummaries = TransmissionParser.summaries(fromTorrents: txTorrents)
-        try expect("tx summaries count", txSummaries.count, 2)
+        try c.expect("tx summaries count", txSummaries.count, 2)
         let txDownloading = txSummaries.first { $0.name == "Linux Distro" }
-        try expectOptional("tx summary state", txDownloading?.state, TorrentState.downloading)
-        try expectOptional("tx summary progress", txDownloading?.progress, 0.5)
-        try expectOptional("tx summary down speed", txDownloading?.downSpeed, 524_288)
+        try c.expectOptional("tx summary state", txDownloading?.state, TorrentState.downloading)
+        try c.expectOptional("tx summary progress", txDownloading?.progress, 0.5)
+        try c.expectOptional("tx summary down speed", txDownloading?.downSpeed, 524_288)
         let txBroken = txSummaries.first { $0.name == "Broken Torrent" }
-        try expectOptional("tx summary error overrides status", txBroken?.state, TorrentState.error)
-        try expectOptional("tx summary eta sentinel is nil", txBroken?.etaSeconds, nil)
+        try c.expectOptional("tx summary error overrides status", txBroken?.state, TorrentState.error)
+        try c.expectOptional("tx summary eta sentinel is nil", txBroken?.etaSeconds, nil)
 
         // Progress clamping is shared by both clients (AC17): nil/NaN/negative
         // clamp to 0, over-range to 1.
-        try expect("clamp nil", TorrentSummary.clampedProgress(nil), 0.0)
-        try expect("clamp negative", TorrentSummary.clampedProgress(-0.2), 0.0)
-        try expect("clamp over range", TorrentSummary.clampedProgress(1.5), 1.0)
-        try expect("clamp NaN", TorrentSummary.clampedProgress(Double.nan), 0.0)
-        try expect("clamp valid", TorrentSummary.clampedProgress(0.42), 0.42)
+        try c.expect("clamp nil", TorrentSummary.clampedProgress(nil), 0.0)
+        try c.expect("clamp negative", TorrentSummary.clampedProgress(-0.2), 0.0)
+        try c.expect("clamp over range", TorrentSummary.clampedProgress(1.5), 1.0)
+        try c.expect("clamp NaN", TorrentSummary.clampedProgress(Double.nan), 0.0)
+        try c.expect("clamp valid", TorrentSummary.clampedProgress(0.42), 0.42)
 
         // `isActive` drives the dropdown's "active only" filter: true only
         // when the torrent actually transfers data in either direction.
-        try expect(
+        try c.expect(
             "isActive false when idle",
             TorrentSummary(id: "1", name: "Idle", state: .paused, progress: 1).isActive,
             false
         )
-        try expect(
+        try c.expect(
             "isActive true when downloading",
             TorrentSummary(id: "2", name: "Downloading", state: .downloading, progress: 0.5, downSpeed: 1).isActive,
             true
         )
-        try expect(
+        try c.expect(
             "isActive true when uploading",
             TorrentSummary(id: "3", name: "Seeding", state: .seeding, progress: 1, upSpeed: 1).isActive,
             true
         )
-    }
-
-    private static func describeOptional<T>(_ value: T?) -> String {
-        value.map { "\($0)" } ?? "nil"
     }
 
     // MARK: - Torrent row presentation checks (torrent list redesign)
@@ -648,17 +613,9 @@ public enum SelfTest {
     /// eyeballing the panel (AC5). The *text* is produced by `L10n` in the app
     /// target and is deliberately not asserted (a check must never depend on a
     /// localizable string).
-    private static func rowChecks(_ passed: inout Int) throws {
-        func expect<T: Equatable>(_ name: String, _ actual: @autoclosure () -> T, _ expected: T) throws {
-            let value = actual()
-            guard value == expected else {
-                throw Failure(message: "\(name): expected \(expected), got \(value)")
-            }
-            passed += 1
-        }
-
+    private static func rowChecks(_ c: inout Checks) throws {
         // Downloading: rate + eta, in that order.
-        try expect(
+        try c.expect(
             "row: downloading shows rate then eta",
             TorrentSummary.infoSegments(state: .downloading, down: 1_258_291, up: 0, etaSeconds: 1_800),
             [.down(1_258_291), .eta(1_800)]
@@ -666,41 +623,41 @@ public enum SelfTest {
 
         // A torrent can seed while it downloads; that upload rate is real
         // traffic and must not be dropped from the row.
-        try expect(
+        try c.expect(
             "row: downloading keeps its upload rate",
             TorrentSummary.infoSegments(state: .downloading, down: 1_258_291, up: 348_160, etaSeconds: 1_800),
             [.down(1_258_291), .up(348_160), .eta(1_800)]
         )
-        try expect(
+        try c.expect(
             "row: uploading while downloading without an eta",
             TorrentSummary.infoSegments(state: .downloading, down: 512_000, up: 348_160, etaSeconds: nil),
             [.down(512_000), .up(348_160)]
         )
 
         // A zero rate is dropped instead of rendering a bare arrow (AC3).
-        try expect(
+        try c.expect(
             "row: downloading without speed shows only eta",
             TorrentSummary.infoSegments(state: .downloading, down: 0, up: 0, etaSeconds: 600),
             [.eta(600)]
         )
-        try expect(
+        try c.expect(
             "row: seeding shows upload rate only",
             TorrentSummary.infoSegments(state: .seeding, down: 0, up: 348_160, etaSeconds: 1_800),
             [.up(348_160)]
         )
-        try expect(
+        try c.expect(
             "row: seeding without upload speed falls back to the word",
             TorrentSummary.infoSegments(state: .seeding, down: 1_258_291, up: 0, etaSeconds: nil),
             [.stateWord(.seeding)]
         )
 
         // A downloading row with neither speed nor eta is still never blank.
-        try expect(
+        try c.expect(
             "row: downloading with nothing to report falls back to the word",
             TorrentSummary.infoSegments(state: .downloading, down: 0, up: 0, etaSeconds: nil),
             [.stateWord(.downloading)]
         )
-        try expect(
+        try c.expect(
             "row: a negative eta is dropped, not rendered as an em dash",
             TorrentSummary.infoSegments(state: .downloading, down: 0, up: 0, etaSeconds: -1),
             [.stateWord(.downloading)]
@@ -709,7 +666,7 @@ public enum SelfTest {
         // Every idle state carries its own word, and speeds never leak into it.
         let idleStates: [TorrentState] = [.stalled, .queued, .checking, .paused, .error, .other]
         for state in idleStates {
-            try expect(
+            try c.expect(
                 "row: \(state.rawValue) shows only its word",
                 TorrentSummary.infoSegments(state: state, down: 1_258_291, up: 348_160, etaSeconds: 60),
                 [.stateWord(state)]
@@ -717,12 +674,12 @@ public enum SelfTest {
         }
 
         // Percentage text, including the clamp the bar also relies on.
-        try expect("percent: 0", TorrentSummary.percentText(0), "0%")
-        try expect("percent: 0.624", TorrentSummary.percentText(0.624), "62%")
-        try expect("percent: 0.995 rounds up", TorrentSummary.percentText(0.995), "100%")
-        try expect("percent: complete", TorrentSummary.percentText(1), "100%")
-        try expect("percent: over-range clamps", TorrentSummary.percentText(1.5), "100%")
-        try expect("percent: NaN clamps", TorrentSummary.percentText(Double.nan), "0%")
+        try c.expect("percent: 0", TorrentSummary.percentText(0), "0%")
+        try c.expect("percent: 0.624", TorrentSummary.percentText(0.624), "62%")
+        try c.expect("percent: 0.995 rounds up", TorrentSummary.percentText(0.995), "100%")
+        try c.expect("percent: complete", TorrentSummary.percentText(1), "100%")
+        try c.expect("percent: over-range clamps", TorrentSummary.percentText(1.5), "100%")
+        try c.expect("percent: NaN clamps", TorrentSummary.percentText(Double.nan), "0%")
     }
 
     // MARK: - Store checks (steps 7–9)
@@ -730,23 +687,7 @@ public enum SelfTest {
     /// Settings persistence, `MonitorStore` change-detection/aggregate helpers,
     /// and a stub-client poll. Nothing here touches the network or the real
     /// Keychain, so the checks are deterministic and fast.
-    private static func storeChecks(_ passed: inout Int) throws {
-        func expect<T: Equatable>(_ name: String, _ actual: @autoclosure () -> T, _ expected: T) throws {
-            let value = actual()
-            guard value == expected else {
-                throw Failure(message: "\(name): expected \(expected), got \(value)")
-            }
-            passed += 1
-        }
-
-        func expectOptional<T: Equatable>(_ name: String, _ actual: @autoclosure () -> T?, _ expected: T?) throws {
-            let value = actual()
-            guard value == expected else {
-                throw Failure(message: "\(name): expected \(describeOptional(expected)), got \(describeOptional(value))")
-            }
-            passed += 1
-        }
-
+    private static func storeChecks(_ c: inout Checks) async throws {
         // --- SettingsStore round-trip in an isolated UserDefaults suite ---
         let suiteName = "com.ptmonitor.PTMonitor.selftest.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -755,41 +696,50 @@ public enum SelfTest {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let settings = SettingsStore(defaults: defaults)
-        try expect("settings start empty", settings.servers.count, 0)
-        try expect("settings default interval", settings.pollInterval, 2)
-        try expect("settings default show-speeds", settings.showSpeedsInMenuBar, true)
-        try expect("settings default show-active-only", settings.showActiveTorrentsOnly, false)
+        try c.expect("settings start empty", settings.servers.count, 0)
+        try c.expect("settings default interval", settings.pollInterval, 2)
+        try c.expect("settings default show-speeds", settings.showSpeedsInMenuBar, true)
+        try c.expect("settings default show-active-only", settings.showActiveTorrentsOnly, false)
 
         var server = ServerConfig(kind: .qbittorrent, name: "NAS", host: "192.168.1.2", port: 8080)
         settings.add(server)
-        try expect("settings add", settings.servers.count, 1)
+        try c.expect("settings add", settings.servers.count, 1)
 
         server.name = "NAS 2"
         server.port = 8081
         settings.update(server)
-        try expect("settings update", settings.server(withID: server.id)?.port, 8081)
+        try c.expect("settings update", settings.server(withID: server.id)?.port, 8081)
 
         settings.setEnabled(false, for: server.id)
-        try expect("settings disable", settings.server(withID: server.id)?.isEnabled, false)
+        try c.expect("settings disable", settings.server(withID: server.id)?.isEnabled, false)
 
         settings.setPollInterval(0.2)
-        try expect("settings clamps interval low", settings.pollInterval, 1)
+        try c.expect("settings clamps interval low", settings.pollInterval, 1)
         settings.setPollInterval(999)
-        try expect("settings clamps interval high", settings.pollInterval, 60)
+        try c.expect("settings clamps interval high", settings.pollInterval, 60)
         settings.setShowSpeedsInMenuBar(false)
-        try expect("settings show-speeds off persisted", settings.showSpeedsInMenuBar, false)
+        try c.expect("settings show-speeds off persisted", settings.showSpeedsInMenuBar, false)
         settings.setShowActiveTorrentsOnly(true)
-        try expect("settings show-active-only on persisted", settings.showActiveTorrentsOnly, true)
+        try c.expect("settings show-active-only on persisted", settings.showActiveTorrentsOnly, true)
 
         // Reload through a fresh store on the same suite: proves persistence.
         let reloaded = SettingsStore(defaults: defaults)
-        try expect("settings reload server count", reloaded.servers.count, 1)
-        try expect("settings reload interval", reloaded.pollInterval, 60)
-        try expect("settings reload show-speeds", reloaded.showSpeedsInMenuBar, false)
-        try expect("settings reload show-active-only", reloaded.showActiveTorrentsOnly, true)
+        try c.expect("settings reload server count", reloaded.servers.count, 1)
+        try c.expect("settings reload interval", reloaded.pollInterval, 60)
+        try c.expect("settings reload show-speeds", reloaded.showSpeedsInMenuBar, false)
+        try c.expect("settings reload show-active-only", reloaded.showActiveTorrentsOnly, true)
 
         settings.delete(id: server.id)
-        try expect("settings delete", settings.servers.count, 0)
+        try c.expect("settings delete", settings.servers.count, 0)
+
+        // The in-app language choice round-trips through its own key. (The
+        // `AppleLanguages` override it writes is deliberately not asserted here:
+        // a suite-based `UserDefaults` reads through to the global domain, so
+        // "removed" and "inherited from the system" look identical.)
+        settings.setAppLanguage(.chinese)
+        try c.expect("settings language persisted", SettingsStore(defaults: defaults).appLanguage, .chinese)
+        settings.setAppLanguage(.system)
+        try c.expect("settings language back to system", SettingsStore(defaults: defaults).appLanguage, .system)
 
         // --- MonitorStore change detection (ignores fetchedAt) ---
         let slow = TransferSnapshot(
@@ -800,60 +750,60 @@ public enum SelfTest {
             downSpeed: 10, upSpeed: 5, activeTorrents: 1, totalTorrents: 2,
             freeSpace: nil, connectionState: .connected, fetchedAt: Date(timeIntervalSince1970: 999)
         )
-        try expect("change: equivalent ignores fetchedAt", MonitorStore.isEquivalent(.online(slow), .online(slowNewer)), true)
-        try expect(
+        try c.expect("change: equivalent ignores fetchedAt", MonitorStore.isEquivalent(.online(slow), .online(slowNewer)), true)
+        try c.expect(
             "change: speed difference publishes",
             MonitorStore.isEquivalent(.online(slow), .online(TransferSnapshot(downSpeed: 11, upSpeed: 5, activeTorrents: 1, totalTorrents: 2))),
             false
         )
-        try expect("change: nil current publishes", MonitorStore.isEquivalent(nil, .online(slow)), false)
-        try expect("change: disabled is idempotent", MonitorStore.isEquivalent(.disabled, .disabled), true)
-        try expect("change: failure kind difference publishes", MonitorStore.isEquivalent(.failed(.auth("x")), .failed(.unreachable("x"))), false)
+        try c.expect("change: nil current publishes", MonitorStore.isEquivalent(nil, .online(slow)), false)
+        try c.expect("change: disabled is idempotent", MonitorStore.isEquivalent(.disabled, .disabled), true)
+        try c.expect("change: failure kind difference publishes", MonitorStore.isEquivalent(.failed(.auth("x")), .failed(.unreachable("x"))), false)
 
         // --- Credential-failure backoff (research/apis.md §1.1, §2.1.1) ---
-        try expect(
+        try c.expect(
             "retry delay: success uses the interval",
             MonitorStore.retryDelay(after: .online(slow), baseInterval: 2),
             2
         )
-        try expect(
+        try c.expect(
             "retry delay: auth failure backs off hard",
             MonitorStore.retryDelay(after: .failed(.auth("invalid username or password")), baseInterval: 2),
             MonitorStore.credentialFailureBackoff
         )
-        try expect(
+        try c.expect(
             "retry delay: unreachable failure keeps the interval",
             MonitorStore.retryDelay(after: .failed(.unreachable("connection refused")), baseInterval: 2),
             2
         )
-        try expect(
+        try c.expect(
             "retry delay: backoff never shortens a longer interval",
             MonitorStore.retryDelay(after: .failed(.auth("x")), baseInterval: MonitorStore.bannedBackoff + 60),
             MonitorStore.bannedBackoff + 60
         )
-        try expect(
+        try c.expect(
             "retry delay: server error keeps the interval",
             MonitorStore.retryDelay(after: .failed(.serverError("permission denied")), baseInterval: 2),
             2
         )
-        try expect(
+        try c.expect(
             "retry delay: protocol violation keeps the interval",
             MonitorStore.retryDelay(after: .failed(.protocolViolation("x")), baseInterval: 2),
             2
         )
-        try expect(
+        try c.expect(
             "retry delay: banned backs off hardest",
             MonitorStore.retryDelay(after: .failed(.banned("banned")), baseInterval: 2),
             MonitorStore.bannedBackoff
         )
-        try expect(
+        try c.expect(
             "retry delay: a ban is spaced further apart than a bad password",
             MonitorStore.bannedBackoff > MonitorStore.credentialFailureBackoff,
             true
         )
         // The spacing is what keeps the app from tripping qBittorrent's
         // `WebUI/MaxAuthenticationFailCount` (default 5) ban within seconds.
-        try expect(
+        try c.expect(
             "retry delay: credential retries are spaced minutes apart",
             MonitorStore.credentialFailureBackoff >= 600,
             true
@@ -867,31 +817,31 @@ public enum SelfTest {
             ids.2: .failed(.auth("invalid username or password"))
         ]
         let aggregate = MonitorStore.aggregate(statuses)
-        try expect("aggregate down speed", aggregate.downSpeed, 15)
-        try expect("aggregate up speed", aggregate.upSpeed, 12)
-        try expect("aggregate active torrents", aggregate.activeTorrents, 3)
-        try expect("aggregate online servers", aggregate.onlineServers, 2)
-        try expect("aggregate failing servers", aggregate.failingServers, 1)
+        try c.expect("aggregate down speed", aggregate.downSpeed, 15)
+        try c.expect("aggregate up speed", aggregate.upSpeed, 12)
+        try c.expect("aggregate active torrents", aggregate.activeTorrents, 3)
+        try c.expect("aggregate online servers", aggregate.onlineServers, 2)
+        try c.expect("aggregate failing servers", aggregate.failingServers, 1)
 
-        try expect("menubar: all failing -> error", MonitorStore.menuBarState([ids.0: .failed(.auth("x"))]), MenuBarState.error)
-        try expect("menubar: activity -> active", MonitorStore.menuBarState(statuses), MenuBarState.active)
-        try expect(
+        try c.expect("menubar: all failing -> error", MonitorStore.menuBarState([ids.0: .failed(.auth("x"))]), MenuBarState.error)
+        try c.expect("menubar: activity -> active", MonitorStore.menuBarState(statuses), MenuBarState.active)
+        try c.expect(
             "menubar: no activity -> idle",
             MonitorStore.menuBarState([ids.0: .online(TransferSnapshot(downSpeed: 0, upSpeed: 0, activeTorrents: 0))]),
             MenuBarState.idle
         )
-        try expect("menubar: empty -> idle", MonitorStore.menuBarState([:]), MenuBarState.idle)
-        try expect("menubar: disabled only -> idle", MonitorStore.menuBarState([ids.0: .disabled]), MenuBarState.idle)
+        try c.expect("menubar: empty -> idle", MonitorStore.menuBarState([:]), MenuBarState.idle)
+        try c.expect("menubar: disabled only -> idle", MonitorStore.menuBarState([ids.0: .disabled]), MenuBarState.idle)
 
         // --- MonitorStore poll with a stub client (no network) ---
         let stubConfig = ServerConfig(kind: .qbittorrent, host: "example.invalid", isEnabled: true)
         let successFactory: @Sendable (ServerConfig) throws -> TorrentClient = { _ in StubClient(snapshot: slow) }
-        let online = try awaitBlocking { await MonitorStore.poll(config: stubConfig, clientFactory: successFactory) }
-        try expectOptional("poll: stub client -> online", online, .online(slow))
+        let online = await MonitorStore.poll(config: stubConfig, clientFactory: successFactory)
+        try c.expectOptional("poll: stub client -> online", online, .online(slow))
 
         let authFactory: @Sendable (ServerConfig) throws -> TorrentClient = { _ in StubClient(error: ServerFailure.auth("invalid username or password")) }
-        let failed = try awaitBlocking { await MonitorStore.poll(config: stubConfig, clientFactory: authFactory) }
-        try expectOptional("poll: ServerFailure -> failed", failed, .failed(.auth("invalid username or password")))
+        let failed = await MonitorStore.poll(config: stubConfig, clientFactory: authFactory)
+        try c.expectOptional("poll: ServerFailure -> failed", failed, .failed(.auth("invalid username or password")))
 
         // A disabled server is never contacted (AC12): the factory must not run.
         let counter = Box<Int>()
@@ -901,9 +851,9 @@ public enum SelfTest {
             return StubClient(snapshot: slow)
         }
         let disabledConfig = ServerConfig(kind: .transmission, host: "nas", isEnabled: false)
-        let disabled = try awaitBlocking { await MonitorStore.poll(config: disabledConfig, clientFactory: countingFactory) }
-        try expectOptional("poll: disabled -> .disabled", disabled, .disabled)
-        try expect("poll: disabled never builds a client", counter.value ?? -1, 0)
+        let disabled = await MonitorStore.poll(config: disabledConfig, clientFactory: countingFactory)
+        try c.expectOptional("poll: disabled -> .disabled", disabled, .disabled)
+        try c.expect("poll: disabled never builds a client", counter.value ?? -1, 0)
     }
 }
 
