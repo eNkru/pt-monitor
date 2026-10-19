@@ -137,6 +137,15 @@ final class PanelController: NSObject, NSWindowDelegate {
             self?.hide()
             self?.onPreferencesHandler()
         }
+        // Expanding a torrent row changes the content height without any store
+        // publish, so the panel must be re-fitted explicitly. Hopping one
+        // runloop turn lets SwiftUI lay the new row out first — measuring
+        // `fittingSize` in the same turn still reports the old height.
+        view.onContentHeightChange = { [weak self] in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.relayoutIfVisible() }
+            }
+        }
         let hosting = NSHostingView(rootView: view)
         hosting.autoresizingMask = [.width, .height]
         panel.contentView = hosting
@@ -160,6 +169,10 @@ final class PanelController: NSObject, NSWindowDelegate {
         guard let hostingView else { return }
 
         hostingView.frame.size.width = PanelView.preferredWidth
+        // Flush pending SwiftUI layout before measuring: `fittingSize` reflects
+        // the *laid-out* content, so a height change made this turn (row
+        // expanded, torrent list arrived) would otherwise be measured stale.
+        hostingView.layoutSubtreeIfNeeded()
         let fitting = hostingView.fittingSize
         let maxHeight = screen.visibleFrame.height * 0.7
         let size = NSSize(width: PanelView.preferredWidth, height: min(max(fitting.height, 120), maxHeight))

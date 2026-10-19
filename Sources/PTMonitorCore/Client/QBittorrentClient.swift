@@ -169,18 +169,24 @@ public enum QBittorrentParser {
     /// hash) onto normalised summaries (R12, design §6.1). Pure, so
     /// `--selftest` can call it directly (AC17).
     ///
-    /// `trackers` is the response's top-level `trackers` map (hash → tracker
-    /// array). It arrives in the same `rid=0` full snapshot as the torrents, so
-    /// the site label costs no extra request (R1).
+    /// `trackers` is the response's top-level `trackers` map. Its real wire
+    /// shape is **announce URL → [torrent hash]**, not hash → tracker objects
+    /// (verified against a live qBittorrent 5.x); it is therefore only a
+    /// fallback for a torrent whose own `tracker` field is empty. Everything
+    /// arrives in the same `rid=0` full snapshot, so the site label costs no
+    /// extra request (R1).
     public static func summaries(
         fromTorrents torrents: [String: Any],
         trackers: [String: Any] = [:]
     ) -> [TorrentSummary] {
+        let fallbackTrackers = trackersByHash(trackers)
         var result: [TorrentSummary] = []
         result.reserveCapacity(torrents.count)
         for (hash, value) in torrents {
             guard let entry = value as? [String: Any] else { continue }
-            let tracker = firstTracker(trackers[hash])
+            // The per-torrent `tracker` field is the announce URL qBittorrent
+            // itself shows for the torrent, i.e. the first announce entry (R3).
+            let announce = (entry["tracker"] as? String) ?? fallbackTrackers[hash]
             result.append(TorrentSummary(
                 id: hash,
                 name: (entry["name"] as? String) ?? hash,
@@ -195,18 +201,31 @@ public enum QBittorrentParser {
                 ratio: ratio(entry["ratio"]),
                 seeders: count(entry["num_seeds"], fallback: entry["num_complete"]),
                 leechers: count(entry["num_leechs"], fallback: entry["num_incomplete"]),
-                site: TorrentSummary.site(fromAnnounceURL: tracker?["url"] as? String),
-                trackerStatus: trackerStatus(tracker?["status"]),
+                site: TorrentSummary.site(fromAnnounceURL: announce),
+                trackerStatus: trackerStatus(
+                    hasError: entry["has_tracker_error"],
+                    hasAnnounceURL: !(announce ?? "").isEmpty
+                ),
                 category: category(entry["category"])
             ))
         }
         return result
     }
 
-    /// The first entry of a torrent's tracker array — the one the site label
-    /// reads (R3: no tier preference, no "working tracker" selection).
-    private static func firstTracker(_ value: Any?) -> [String: Any]? {
-        (value as? [Any])?.first as? [String: Any]
+    /// Inverts the top-level `trackers` map (announce URL → [hash]) into
+    /// hash → announce URL, keeping the first URL seen for a hash. Only used
+    /// when a torrent carries no `tracker` field of its own.
+    static func trackersByHash(_ trackers: [String: Any]) -> [String: String] {
+        var byHash: [String: String] = [:]
+        // Sorted so the choice is deterministic when a torrent announces to
+        // several trackers; the site label only needs *a* real announce host.
+        for url in trackers.keys.sorted() {
+            guard let hashes = trackers[url] as? [Any] else { continue }
+            for case let hash as String in hashes where byHash[hash] == nil {
+                byHash[hash] = url
+            }
+        }
+        return byHash
     }
 
     /// qBittorrent's `ratio` is `-1` when it has nothing to divide by; that is
@@ -223,11 +242,14 @@ public enum QBittorrentParser {
         JSON.int64(primary).map(Int.init) ?? JSON.int64(fallback).map(Int.init)
     }
 
-    /// qBittorrent's tracker `status`: `2` is working, `0`/`1`/`3` are disabled /
-    /// not contacted / not working. A missing status stays `nil`.
-    static func trackerStatus(_ value: Any?) -> TrackerStatus? {
-        guard let status = JSON.int64(value) else { return nil }
-        return status == 2 ? .working : .notWorking
+    /// Tracker health from the per-torrent `has_tracker_error` flag — the real
+    /// signal in `sync/maindata` (there are no per-tracker status objects
+    /// there). A torrent with no announce URL stays `nil`: there is no tracker
+    /// to have an opinion about.
+    static func trackerStatus(hasError: Any?, hasAnnounceURL: Bool) -> TrackerStatus? {
+        guard hasAnnounceURL else { return nil }
+        guard let errored = hasError as? Bool else { return nil }
+        return errored ? .notWorking : .working
     }
 
     /// An empty category is "no category", not a category named "".

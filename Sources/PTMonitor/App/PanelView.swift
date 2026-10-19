@@ -22,6 +22,12 @@ struct PanelView: View {
     /// dismisses the panel.
     var onPreferences: () -> Void = {}
 
+    /// Called when the view's own content height changes (expanding or
+    /// collapsing a torrent row). The controller re-fits the panel to the
+    /// content; without this the window keeps its old height and the row list
+    /// just grows a scrollbar until the next poll happens to relayout.
+    var onContentHeightChange: () -> Void = {}
+
     @Environment(\.colorScheme) private var colorScheme
 
     // MARK: - Constants (design §6.2)
@@ -403,6 +409,7 @@ struct PanelView: View {
             // One expansion at a time: tapping the open row closes it, tapping
             // another row moves the expansion there.
             expandedTorrentID = expanded ? nil : torrent.id
+            onContentHeightChange()
         }
     }
 

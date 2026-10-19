@@ -516,7 +516,9 @@ public enum SelfTest {
                 "dlspeed": 0, "upspeed": 20480, "eta": 8640000,
                 "total_size": 6_600_000_000, "downloaded": 6_600_000_000,
                 "uploaded": 9_800_000_000, "ratio": 2.41,
-                "num_seeds": 12, "num_leechs": 3, "category": "Movies"
+                "num_seeds": 12, "num_leechs": 3, "category": "Movies",
+                "tracker": "https://tracker.hdchina.org/announce.php?passkey=x",
+                "has_tracker_error": false
             ],
             "bbbb000000000000000000000000000000000000": [
                 "name": "Downloading ISO", "state": "downloading", "progress": 0.42,
@@ -524,7 +526,10 @@ public enum SelfTest {
                 // ratio -1 is the API's "not available" sentinel; the swarm
                 // counts stand in when the connected counts are absent.
                 "ratio": -1, "num_complete": 40, "num_incomplete": 7,
-                "category": ""
+                "category": "",
+                // No `tracker` field: the site must fall back to the inverted
+                // top-level `trackers` map.
+                "has_tracker_error": true
             ],
             // No name → falls back to the hash; progress is malformed.
             "cccc000000000000000000000000000000000000": [
@@ -532,13 +537,17 @@ public enum SelfTest {
             ]
         ]
         // The top-level `trackers` map rides along in the same full snapshot, so
-        // the site label needs no extra request (R1).
+        // the site label needs no extra request (R1). Its REAL wire shape is
+        // announce URL -> [torrent hash] — the inverse of "hash -> tracker
+        // objects". Assuming the latter made the site label silently vanish on
+        // a live server while this fixture still passed, so the fixture below
+        // mirrors an actual qBittorrent 5.x response.
         let qbTrackers: [String: Any] = [
-            "aaaa000000000000000000000000000000000000": [
-                ["url": "https://tracker.hdchina.org/announce.php?passkey=x", "tier": 0, "status": 2]
+            "https://tracker.hdchina.org/announce.php?passkey=x": [
+                "aaaa000000000000000000000000000000000000"
             ],
-            "bbbb000000000000000000000000000000000000": [
-                ["url": "udp://announce.othersite.net:6969/announce", "tier": 0, "status": 1]
+            "udp://announce.othersite.net:6969/announce": [
+                "bbbb000000000000000000000000000000000000"
             ]
         ]
         var qbSummaries = QBittorrentParser.summaries(fromTorrents: qbTorrents, trackers: qbTrackers)
@@ -561,14 +570,28 @@ public enum SelfTest {
         try c.expectOptional("qb detail seeders", qbSeeding?.seeders, 12)
         try c.expectOptional("qb detail leechers", qbSeeding?.leechers, 3)
         try c.expectOptional("qb detail category", qbSeeding?.category, "Movies")
-        try c.expectOptional("qb detail site from first tracker", qbSeeding?.site, "hdchina.org")
+        try c.expectOptional("qb detail site from the torrent's own tracker field", qbSeeding?.site, "hdchina.org")
         try c.expectOptional("qb detail tracker status working", qbSeeding?.trackerStatus, TrackerStatus.working)
         try c.expectOptional("qb detail ratio -1 is nil", qbDownloading?.ratio, nil)
         try c.expectOptional("qb detail empty category is nil", qbDownloading?.category, nil)
         try c.expectOptional("qb detail falls back to swarm counts", qbDownloading?.seeders, 40)
         try c.expectOptional("qb detail leechers fallback", qbDownloading?.leechers, 7)
-        try c.expectOptional("qb detail site from udp announce", qbDownloading?.site, "othersite.net")
+        try c.expectOptional("qb detail site falls back to the inverted trackers map", qbDownloading?.site, "othersite.net")
         try c.expectOptional("qb detail tracker status not working", qbDownloading?.trackerStatus, TrackerStatus.notWorking)
+
+        // The top-level `trackers` map is announce URL -> [hash]. Locking the
+        // inversion here means a future reader cannot "fix" it back to the
+        // hash -> tracker-object shape without a check going red.
+        let inverted = QBittorrentParser.trackersByHash([
+            "https://b.example/announce": ["h2", "h1"],
+            "https://a.example/announce": ["h1"]
+        ])
+        try c.expect("qb trackers inverted: count", inverted.count, 2)
+        try c.expectOptional("qb trackers inverted: h2", inverted["h2"], "https://b.example/announce")
+        try c.expectOptional("qb trackers inverted: h1 takes the first URL by sort", inverted["h1"], "https://a.example/announce")
+        try c.expect("qb trackers inverted: a hash->object shape yields nothing", QBittorrentParser.trackersByHash([
+            "h1": [["url": "https://a.example/announce"]]
+        ]).isEmpty, true)
         // A torrent with no tracker entry has no site — never a placeholder.
         try c.expectOptional("qb detail no tracker means no site", qbUnnamed?.site, nil)
         try c.expectOptional("qb detail no tracker means no status", qbUnnamed?.trackerStatus, nil)
