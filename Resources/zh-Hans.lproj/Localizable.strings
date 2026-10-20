@@ -95,14 +95,11 @@
 "Edit" = "编辑";
 "Delete" = "删除";
 
-/* Expanded torrent detail (R8) */
-"Size %@" = "大小 %@";
-"Size %@ · %@ downloaded (%@)" = "大小 %@ · 已下载 %@（%@）";
-"Ratio %@" = "分享率 %@";
-"Ratio %@ · %@ / %@" = "分享率 %@ · 上传 %@ / 下载 %@";
-"Seeds %@ · Leechers %@" = "做种 %@ · 下载 %@";
-"Tracker %@" = "Tracker %@";
+/* Expanded torrent detail (R8) — one key per grid caption, labels only */
+"Size" = "大小";
+"Ratio" = "分享率";
+"Seeds / Leechers" = "做种 / 下载";
+"Tracker" = "Tracker";
+"Category" = "分类";
 "Working" = "正常";
 "Not working" = "不可用";
-"Category %@" = "分类 %@";
-"Error %@" = "错误 %@";

@@ -86,51 +86,72 @@ enum L10n {
 
     // MARK: - Expanded torrent detail (R8)
 
-    /// Text for one expanded-row detail line. `TorrentSummary.expandedLines`
-    /// decides which lines exist and in what order; this only formats them.
-    static func detailLine(_ line: TorrentDetailLine) -> String {
-        switch line {
-        case .size(let total, let downloaded, let progress):
-            let size = ByteRateFormatter.bytes(total)
-            if let downloaded {
-                let percent = TorrentSummary.percentText(progress)
-                return String(
-                    format: s("Size %@ · %@ downloaded (%@)"),
-                    size,
-                    ByteRateFormatter.bytes(downloaded),
-                    percent
-                )
-            }
-            return String(format: s("Size %@"), size)
+    /// The three parts of one expanded-row detail cell.
+    /// `TorrentSummary.expandedLines` decides which cells exist and in what
+    /// order; these only turn each one into a caption, a value, and an optional
+    /// numeric note. Splitting them is what lets the view lay the detail out as
+    /// a label-over-value grid instead of a run-on sentence — and it keeps the
+    /// translatable part down to the short captions.
 
-        case .ratio(let ratio, let uploaded, let downloaded):
-            let formatted = String(format: "×%.2f", ratio)
-            if let uploaded, let downloaded {
-                return String(
-                    format: s("Ratio %@ · %@ / %@"),
-                    formatted,
-                    ByteRateFormatter.bytes(uploaded),
-                    ByteRateFormatter.bytes(downloaded)
-                )
-            }
-            return String(format: s("Ratio %@"), formatted)
+    /// Caption above the value, rendered in small caps by the view.
+    static func detailLabel(_ line: TorrentDetailLine) -> String {
+        switch line {
+        case .size: return s("Size")
+        case .ratio: return s("Ratio")
+        case .peers: return s("Seeds / Leechers")
+        case .trackerStatus: return s("Tracker")
+        case .category: return s("Category")
+        case .error: return s("Error")
+        }
+    }
+
+    /// The cell's main value. Numbers are unit-formatted and monospaced by the
+    /// view; only the words localize.
+    static func detailValue(_ line: TorrentDetailLine) -> String {
+        switch line {
+        case .size(let total, _, _):
+            return ByteRateFormatter.bytes(total)
+
+        case .ratio(let ratio, _, _):
+            return String(format: "×%.2f", ratio)
 
         case .peers(let seeders, let leechers):
             // Either count can be missing; the dashes are the honest rendering
             // of "the server did not report it".
             let seeds = seeders.map(String.init) ?? "—"
             let leech = leechers.map(String.init) ?? "—"
-            return String(format: s("Seeds %@ · Leechers %@"), seeds, leech)
+            return "\(seeds) / \(leech)"
 
         case .trackerStatus(let status):
-            let word = status == .working ? s("Working") : s("Not working")
-            return String(format: s("Tracker %@"), word)
+            return status == .working ? s("Working") : s("Not working")
 
         case .category(let category):
-            return String(format: s("Category %@"), category)
+            return category
 
         case .error(let message):
-            return String(format: s("Error %@"), message)
+            return message
+        }
+    }
+
+    /// Optional third line under the value: the numbers that used to be crammed
+    /// into the same sentence. Both notes are arrows and units only — nothing to
+    /// translate, and nothing repeated from the collapsed row (the completion
+    /// percentage already sits at the progress bar's right end).
+    static func detailNote(_ line: TorrentDetailLine) -> String? {
+        switch line {
+        case .size(_, let downloaded, _):
+            // "how much of it has landed" — the total is the cell's value.
+            guard let downloaded else { return nil }
+            return "\(ByteRateFormatter.downArrow) \(ByteRateFormatter.bytes(downloaded))"
+
+        case .ratio(_, let uploaded, let downloaded):
+            guard let uploaded, let downloaded else { return nil }
+            let up = ByteRateFormatter.bytes(uploaded)
+            let down = ByteRateFormatter.bytes(downloaded)
+            return "\(ByteRateFormatter.upArrow) \(up) · \(ByteRateFormatter.downArrow) \(down)"
+
+        case .peers, .trackerStatus, .category, .error:
+            return nil
         }
     }
 

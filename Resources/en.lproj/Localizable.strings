@@ -96,14 +96,11 @@
 "Edit" = "Edit";
 "Delete" = "Delete";
 
-/* Expanded torrent detail (R8) */
-"Size %@" = "Size %@";
-"Size %@ · %@ downloaded (%@)" = "Size %@ · %@ downloaded (%@)";
-"Ratio %@" = "Ratio %@";
-"Ratio %@ · %@ / %@" = "Ratio %@ · %@ / %@";
-"Seeds %@ · Leechers %@" = "Seeds %@ · Leechers %@";
-"Tracker %@" = "Tracker %@";
+/* Expanded torrent detail (R8) — one key per grid caption, labels only */
+"Size" = "Size";
+"Ratio" = "Ratio";
+"Seeds / Leechers" = "Seeds / Leechers";
+"Tracker" = "Tracker";
+"Category" = "Category";
 "Working" = "Working";
 "Not working" = "Not working";
-"Category %@" = "Category %@";
-"Error %@" = "Error %@";
