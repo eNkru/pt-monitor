@@ -413,22 +413,107 @@ struct PanelView: View {
         }
     }
 
-    /// The expanded detail block (R8): one small secondary line per field the
-    /// server actually reported. `TorrentSummary.expandedLines` decides which
-    /// lines exist and in what order; this only renders their text.
+    /// The expanded detail block (R8): an inset sub-panel of label-over-value
+    /// cells, laid out like the aggregate grid at the top of the panel so it
+    /// reads as a second info panel rather than a paragraph of prose.
+    ///
+    /// Chrome is deliberately one thing only — a soft fill with a 10pt radius.
+    /// No border, no accent bar: an outline next to a coloured edge is two
+    /// competing boundaries for the same job, and the row already carries its
+    /// state colour in the dot and the progress bar. The inset alone is enough
+    /// separation against the panel's own gradient.
+    /// `TorrentSummary.expandedLines` still decides which cells exist and in
+    /// what order; `L10n` supplies each cell's caption, value, and numeric note.
     private func expandedDetail(_ torrent: TorrentSummary) -> some View {
         let lines = TorrentSummary.expandedLines(for: torrent)
-        return VStack(alignment: .leading, spacing: 2) {
-            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                Text(L10n.detailLine(line))
-                    .font(.system(size: 10.5))
+        // The error cell is the only one whose text is a sentence rather than a
+        // number, so it takes the full width below the grid.
+        let cells = lines.filter { !Self.isErrorLine($0) }
+        let errors = lines.filter(Self.isErrorLine)
+
+        return VStack(alignment: .leading, spacing: 12) {
+            if !cells.isEmpty {
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 14, alignment: .leading),
+                        GridItem(.flexible(), spacing: 14, alignment: .leading)
+                    ],
+                    alignment: .leading,
+                    spacing: 11
+                ) {
+                    ForEach(Array(cells.enumerated()), id: \.offset) { _, line in
+                        detailCell(line)
+                    }
+                }
+            }
+            ForEach(Array(errors.enumerated()), id: \.offset) { _, line in
+                detailError(line)
+            }
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 11)
+        .background(detailFill)
+        .padding(.top, 4)
+    }
+
+    private static func isErrorLine(_ line: TorrentDetailLine) -> Bool {
+        if case .error = line { return true }
+        return false
+    }
+
+    /// The sub-panel's only chrome: a fill a few percent off the panel's own
+    /// surface. Lighter than a border and it cannot misfit the card's corners.
+    private var detailFill: some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.04))
+    }
+
+    /// One grid cell: small-caps caption, monospaced value, optional note.
+    private func detailCell(_ line: TorrentDetailLine) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(L10n.detailLabel(line))
+                .font(.system(size: 9.5, weight: .semibold))
+                .textCase(.uppercase)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+            Text(L10n.detailValue(line))
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if let note = L10n.detailNote(line) {
+                Text(note)
+                    .font(.system(size: 10))
                     .monospacedDigit()
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
         }
-        .padding(.top, 1)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The client's own failure text: full width, up to two lines, red but
+    /// unboxed — a tinted badge would add a third kind of chrome to one row.
+    private func detailError(_ line: TorrentDetailLine) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 9.5))
+                .foregroundColor(.red)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L10n.detailLabel(line))
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .textCase(.uppercase)
+                    .foregroundColor(.red.opacity(0.75))
+                Text(L10n.detailValue(line))
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundColor(.red)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Status dot diameter; also the name's baseline offset anchor.
