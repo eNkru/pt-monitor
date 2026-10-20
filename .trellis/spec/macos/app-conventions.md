@@ -323,6 +323,25 @@ proactive Basic-auth header). Do not delete the task-level forwarder as
   mutates nothing on the server. Two consequences to remember: it resets on
   every panel open (the hosting view is rebuilt), and it grows the panel
   downward (the top edge stays anchored, `relayoutIfVisible()` re-fits).
+- **The panel re-fits in the same layout pass that discovers the height change**
+  (2026-10-20). `PanelHostingView` — a private `NSHostingView<PanelView>`
+  subclass in `PanelController.swift` — compares its `fittingSize` inside
+  `layout()` and re-fits the window from there. Deferring instead (the
+  `PanelView.onContentHeightChange` hop, still wired as the fallback) drew one
+  frame at the old height, and because the root `VStack` compresses the
+  flexible section `ScrollView` when the window is short, the taller content
+  overflowed it and flashed its scroller before the window grew.
+  `relayoutIfVisible(flushingLayout:)` passes `false` only on that path — it is
+  already inside `layout()`; `show()` and the store-publish sinks still flush
+  with `layoutSubtreeIfNeeded()` first, which is what makes them measure the
+  new height rather than a stale one.
+  **Accepted tradeoff**: `NSWindow.setFrame` from inside `layout()` makes AppKit
+  log `It's not legal to call -layoutSubtreeIfNeeded on a view which is already
+  being laid out` once per process. Its recursion guard skips the nested pass
+  and the content is laid out at the new size within the same display cycle. Do
+  not "fix" that log by resizing only the hosting view (the card's bottom is
+  then clipped for a frame) or by deferring again (the scroller flash returns);
+  if the guard ever refuses the resize, the deferred fallback still re-fits.
 - **Read-only**: no pause/resume/add/remove. No control endpoints. Torrent rows
   may carry **view-state interactions only** — expand/collapse, which makes no
   network call and mutates nothing server-side; they must never carry a server

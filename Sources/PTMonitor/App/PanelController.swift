@@ -30,7 +30,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     private let onPreferencesHandler: () -> Void
 
     /// Nil whenever the panel is hidden — see `installHostingView()`.
-    private var hostingView: NSHostingView<PanelView>?
+    private var hostingView: PanelHostingView?
 
     /// Screen frame of the status item, captured when the panel opened.
     ///
@@ -141,13 +141,24 @@ final class PanelController: NSObject, NSWindowDelegate {
         // publish, so the panel must be re-fitted explicitly. Hopping one
         // runloop turn lets SwiftUI lay the new row out first — measuring
         // `fittingSize` in the same turn still reports the old height.
+        //
+        // Kept as a safety net: `PanelHostingView.onFittingSizeChange` already
+        // resizes in the same layout pass, so by the time this runs the frame
+        // usually matches and `layout()`'s "nothing moved" guard returns.
         view.onContentHeightChange = { [weak self] in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self?.relayoutIfVisible() }
             }
         }
-        let hosting = NSHostingView(rootView: view)
+        let hosting = PanelHostingView(rootView: view)
         hosting.autoresizingMask = [.width, .height]
+        // Resize during the layout pass that discovered the new content height
+        // instead of one runloop turn later (which drew one frame at the old
+        // height). We are already inside this view's `layout()`, so skip the
+        // `layoutSubtreeIfNeeded()` flush.
+        hosting.onFittingSizeChange = { [weak self] in
+            self?.relayoutIfVisible(flushingLayout: false)
+        }
         panel.contentView = hosting
         hostingView = hosting
     }
@@ -163,7 +174,12 @@ final class PanelController: NSObject, NSWindowDelegate {
     /// so that content refreshes only ever grow/shrink the panel downwards:
     /// the top edge stays pinned under the item and `midX` never follows the
     /// status item's fluctuating width.
-    private func layout() {
+    ///
+    /// - Parameter flushingLayout: flush pending SwiftUI layout before
+    ///   measuring. Needed when called from outside a layout pass (torrent list
+    ///   arrived, store published, panel opening); must be `false` when called
+    ///   from `PanelHostingView.layout()`, which is already laying out.
+    private func layout(flushingLayout: Bool = true) {
         guard let screen = button.window?.screen ?? NSScreen.main else { return }
         guard let itemFrame = anchorFrame ?? statusItemScreenFrame() else { return }
         guard let hostingView else { return }
@@ -172,7 +188,9 @@ final class PanelController: NSObject, NSWindowDelegate {
         // Flush pending SwiftUI layout before measuring: `fittingSize` reflects
         // the *laid-out* content, so a height change made this turn (row
         // expanded, torrent list arrived) would otherwise be measured stale.
-        hostingView.layoutSubtreeIfNeeded()
+        if flushingLayout {
+            hostingView.layoutSubtreeIfNeeded()
+        }
         let fitting = hostingView.fittingSize
         let maxHeight = screen.visibleFrame.height * 0.7
         let size = NSSize(width: PanelView.preferredWidth, height: min(max(fitting.height, 120), maxHeight))
@@ -203,9 +221,9 @@ final class PanelController: NSObject, NSWindowDelegate {
     /// anchor captured at `show()` time. Runs only while a hosting view exists
     /// (i.e. while the panel is visible); `layout()` guards the optional
     /// defensively anyway.
-    private func relayoutIfVisible() {
+    private func relayoutIfVisible(flushingLayout: Bool = true) {
         guard panel.isVisible, hostingView != nil else { return }
-        layout()
+        layout(flushingLayout: flushingLayout)
     }
 
     private func statusItemScreenFrame() -> NSRect? {
@@ -282,6 +300,44 @@ final class PanelController: NSObject, NSWindowDelegate {
     /// responder chain unhandled (`cancelOperation`).
     func panelDidRequestDismissal() {
         hide()
+    }
+}
+
+/// Hosting view that reports content-height changes *during* the layout pass
+/// that discovered them.
+///
+/// Why: expanding a torrent row changes the SwiftUI content height without any
+/// store publish. Relayouting from `PanelView.onContentHeightChange` has to hop
+/// a runloop turn (measuring `fittingSize` in the same turn of an `onTapGesture`
+/// reports the old height) — so for one drawn frame the taller content is laid
+/// out inside the still-short window frame, the section `ScrollView` overflows
+/// and its scroller flashes before the window grows and the scroller vanishes.
+/// Observing `fittingSize` from `layout()` lets the window resize in the same
+/// AppKit pass, so the scroller never appears. Do not delete this as a
+/// redundant duplicate of `onContentHeightChange` — that one is now only the
+/// deferred safety net.
+///
+/// **Known, accepted tradeoff.** Resizing the window from inside `layout()`
+/// makes AppKit log
+/// `It's not legal to call -layoutSubtreeIfNeeded on a view which is already
+/// being laid out` once per process: `NSWindow.setFrame` forces a content-view
+/// layout while this view is laying out. AppKit's own recursion guard skips
+/// that nested pass and the layout is redone correctly within the same display
+/// cycle, so the log is noise, not a bug. The "clean" variants are worse:
+/// resizing only the hosting view (never the window) silences the log but
+/// leaves the card's bottom clipped for one frame, and deferring again is the
+/// original scroller flash. If the guard ever does refuse the resize, the
+/// deferred `onContentHeightChange` path still re-fits one runloop turn later.
+private final class PanelHostingView: NSHostingView<PanelView> {
+    var onFittingSizeChange: (() -> Void)?
+    private var lastFittingSize: NSSize = .zero
+
+    override func layout() {
+        super.layout()
+        let fitting = fittingSize
+        guard fitting != lastFittingSize else { return }
+        lastFittingSize = fitting
+        onFittingSizeChange?()
     }
 }
 
