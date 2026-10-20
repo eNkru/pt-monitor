@@ -72,3 +72,37 @@ qBittorrent 5.2 moved the login verdict to the status code (204 success / 401 fa
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Torrent row detail: site label, expanded row, same-pass panel re-fit
+
+**Date**: 2026-10-20
+**Task**: Torrent row detail: site label, expanded row, same-pass panel re-fit
+**Branch**: `fix/panel-expand-refit`
+
+### Summary
+
+Finished the torrent-row-detail task: click-to-expand rows, PT site from the announce URL (uniform-site hoisting into the section header), and the expanded detail field set, all parsed from the existing poll response. Fixed the follow-up visual defect where expanding a row flashed the section ScrollView's scroller before the panel grew: PanelHostingView now re-fits the window from its own layout() pass instead of a deferred runloop hop, with the deferred path kept as the fallback. Spec updated with the mechanism and the accepted AppKit recursion-log tradeoff. Selftest: 270 checks.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `004c84d` | (see git log) |
+| `d5d3274` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
