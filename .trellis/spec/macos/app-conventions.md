@@ -311,18 +311,51 @@ proactive Basic-auth header). Do not delete the task-level forwarder as
   Mixed sites — or any row without a site — fall back to per-row, because a
   header would otherwise claim a site some rows are not from. Consequence:
   section appearance is data-dependent and can flip between polls.
-- **Expanded torrent row** (2026-10-20). Clicking a row expands it in place,
-  one row at a time (`PanelView.expandedTorrentID`). `TorrentSummary.expandedLines(for:)`
-  decides which lines exist and in what order — `size` / `ratio` / `peers` /
-  `trackerStatus` / `category` / `error` — with **no strings**, so `--selftest`
-  asserts the decision and `L10n.detailLine` renders it. A field the server did
-  not report is omitted entirely; `nil` means "unreported", never zero, so no
-  line ever shows a fake `0 B` or a dash. Both clients' `-1` ratio sentinel is
-  normalised to `nil` at parse time, and an empty `category` likewise. The
-  expansion state is **view state only**: it performs no network call and
-  mutates nothing on the server. Two consequences to remember: it resets on
-  every panel open (the hosting view is rebuilt), and it grows the panel
-  downward (the top edge stays anchored, `relayoutIfVisible()` re-fits).
+- **Expanded torrent row** (2026-10-20, restyled same day). Clicking a row
+  expands it in place, one row at a time (`PanelView.expandedTorrentID`).
+  The block renders as an **inset sub-panel** laid out as the **same 2-column
+  caption-over-value grid as the aggregate grid** (9.5pt uppercase secondary
+  caption, 12pt monospaced semibold value, optional 10pt numeric note beneath).
+  Reusing that visual language is the point: the expansion reads as a second
+  info panel, not as extra prose inside the row.
+  **Its only chrome is a soft fill** — a 10pt-radius rect at `white 5%` (dark) /
+  `black 4%` (light), `padding(11)` — with **no stroke and no accent bar**. An
+  outline drawn beside a coloured edge is two competing boundaries for one job,
+  and the row already carries its state colour in the dot and the progress bar;
+  the fill alone separates the block from the panel gradient. Do not re-add a
+  border or a leading accent bar "for definition" — that combination was tried
+  and read as visually noisy. Consequence: the fill is the only thing defining
+  the edge, so it must stay a few percent off the panel surface in **both** color
+  schemes.
+  `TorrentSummary.expandedLines(for:)` decides which cells exist and in what
+  order — `size` / `ratio` / `peers` / `trackerStatus` / `category` / `error` —
+  with **no strings**, so `--selftest` asserts the decision; the app target
+  splits each cell into three parts: `L10n.detailLabel` (the only translatable
+  text), `L10n.detailValue` (the number/word), and `L10n.detailNote` (the
+  secondary numbers that used to be crammed into the same sentence — `nil` for
+  cells that have none). Units, arrows and `×` prefixes are language-neutral and
+  deliberately absent from the string tables. The `size` note is `↓ <downloaded>`
+  and the `ratio` note is `↑ <uploaded> · ↓ <downloaded>`; the completion
+  percentage is deliberately **not** repeated there — it already sits at the
+  collapsed row's progress bar.
+  The `error` cell is the exception: it is pulled out of the grid and rendered
+  full width beneath it, red, with an `exclamationmark.triangle.fill` and up to
+  two lines, because the client's own failure text is a sentence, not a number.
+  It gets no tinted badge or box — that would be a third kind of chrome in one
+  row.
+  A field the server did not report is omitted entirely; `nil` means
+  "unreported", never zero, so no cell ever shows a fake `0 B` or a dash. Both
+  clients' `-1` ratio sentinel is normalised to `nil` at parse time, and an empty
+  `category` likewise. The expansion state is **view state only**: it performs no
+  network call and mutates nothing on the server. Two consequences to remember:
+  it resets on every panel open (the hosting view is rebuilt), and it grows the
+  panel downward (the top edge stays anchored, `relayoutIfVisible()` re-fits).
+  Cell width is **150pt** at the fixed 380pt panel width; every caption, value
+  and note was measured to fit, so keep additions short (the `ratio` note is the
+  longest at 135pt) or the grid truncates.
+  There is deliberately **no expand/collapse animation**: `fittingSize` would
+  change frame by frame and the same-layout-pass re-fit below would chase it with
+  repeated `setFrame` calls.
 - **The panel re-fits in the same layout pass that discovers the height change**
   (2026-10-20). `PanelHostingView` — a private `NSHostingView<PanelView>`
   subclass in `PanelController.swift` — compares its `fittingSize` inside
