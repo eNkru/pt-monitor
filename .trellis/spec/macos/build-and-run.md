@@ -15,13 +15,21 @@ swift run PTMonitor --selftest       # in-binary checks; exit 0 = all pass
 swift build -c release               # release build
 ./scripts/build-app.sh               # assemble + ad-hoc sign build/PTMonitor.app
 open build/PTMonitor.app             # run the menu bar agent (manual)
+APP_VERSION=0.2.0 ./scripts/build-app.sh   # override the stamped version (CI tags use this)
 
 # headless single-server probe (R11 / AC13), no GUI:
 build/PTMonitor.app/Contents/MacOS/PTMonitor \
   --probe <qbittorrent|transmission> --host <h> --port <p> \
   [--user u] [--pass p] [--https] [--insecure]
-
 ```
+
+CI (`.github/workflows/build.yml`) runs build + selftest + `build-app.sh` on
+`macos-latest`: pushes to `main` produce a workflow artifact; pushing a `v*`
+tag creates a GitHub Release with the zipped `.app`, stamping the tag version
+into Info.plist via the `APP_VERSION` override. Zipping uses `ditto`, not
+`zip`, so the bundle layout and ad-hoc signature survive. The workflow also
+has a `workflow_dispatch` trigger, so it can be run manually from a feature
+branch (`gh workflow run "Build & Package" --ref <branch>`) without merging.
 
 `swift test` is **forbidden** — XCTest is not shipped with Command Line Tools
 (`error: XCTest not available`). Any `testTarget` breaks the build. Automated
