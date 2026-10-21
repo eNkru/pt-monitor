@@ -1,0 +1,78 @@
+# PTMonitor CI — build, selftest, package.
+#
+# Contract (see .trellis/spec/macos/build-and-run.md):
+#   - `swift test` is forbidden (XCTest is unavailable under CLT); the gate
+#     is `swift run PTMonitor --selftest` (exit 0 = pass).
+#   - Packaging is scripts/build-app.sh: release build -> hand-assembled
+#     .app -> ad-hoc codesign.
+#
+# Two lanes in one workflow:
+#   - push to main  -> build + selftest + zip, kept as a workflow artifact.
+#   - push of v* tag -> same, plus a GitHub Release with the zip attached.
+#     The tag (minus leading "v") overrides APP_VERSION in build-app.sh, so
+#     Info.plist carries the released version.
+
+name: Build & Package
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch: # manual run (gh workflow run), also from feature branches via --ref
+
+permissions:
+  contents: write # needed to create GitHub Releases on tag push
+
+jobs:
+  build:
+    name: Build, selftest, package
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            echo "APP_VERSION=$version" >> "$GITHUB_ENV"
+            echo "ZIP_NAME=PTMonitor-$version-macOS.zip" >> "$GITHUB_ENV"
+            echo "ARTIFACT_NAME=PTMonitor-$version-macOS" >> "$GITHUB_ENV"
+          else
+            sha="${GITHUB_SHA::7}"
+            echo "ZIP_NAME=PTMonitor-0.1.0-dev.$sha-macOS.zip" >> "$GITHUB_ENV"
+            echo "ARTIFACT_NAME=PTMonitor-main-$sha-macOS" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build (release)
+        run: swift build -c release
+
+      - name: Self-test
+        run: swift run -c release PTMonitor --selftest
+
+      - name: Assemble PTMonitor.app
+        run: ./scripts/build-app.sh
+
+      # ditto (not zip) so the bundle structure and codesign survive zipping.
+      - name: Zip the .app
+        run: |
+          ditto -c -k --keepParent build/PTMonitor.app "$ZIP_NAME"
+          ls -lh "$ZIP_NAME"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.ZIP_NAME }}
+          if-no-files-found: error
+
+      # Releases are cut by pushing a v* tag; merges to main only produce
+      # the artifact above, so the hardcoded version never collides.
+      - name: Create GitHub Release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$ZIP_NAME" \
+            --title "PTMonitor $APP_VERSION" \
+            --notes "Ad-hoc signed build (no Developer ID). On first launch macOS may quarantine the downloaded app — right-click > Open, or run: xattr -dr com.apple.quarantine PTMonitor.app" \
+            --generate-notes

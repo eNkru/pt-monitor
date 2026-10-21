@@ -13,7 +13,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 APP_NAME="PTMonitor"
-APP_VERSION="0.1.0"
+# Overridable so CI can stamp a tag's version (e.g. v0.2.0 -> 0.2.0) into
+# Info.plist; locally the hard default applies.
+APP_VERSION="${APP_VERSION:-0.1.0}"
 CONFIGURATION="release"
 
 BUILD_DIR="$ROOT/build"
