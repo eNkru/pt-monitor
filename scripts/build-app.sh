@@ -40,7 +40,7 @@ if [[ "$UNIVERSAL" == "1" ]]; then
     echo "==> swift build -c $CONFIGURATION --arch $OTHER_ARCH (cross slice)"
     swift build -c "$CONFIGURATION" --arch "$OTHER_ARCH"
     OTHER_BIN="$(swift build -c "$CONFIGURATION" --arch "$OTHER_ARCH" --show-bin-path)/$APP_NAME"
-    UNIVERSAL_BIN="$BUILD_DIR/$APP_NAME-universal"
+    UNIVERSAL_BIN="$BIN_DIR/$APP_NAME-universal"
     lipo -create "$BIN" "$OTHER_BIN" -output "$UNIVERSAL_BIN"
     BIN="$UNIVERSAL_BIN"
     echo "==> universal binary: $(lipo -archs "$BIN")"
