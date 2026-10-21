@@ -28,8 +28,15 @@ CI (`.github/workflows/build.yml`) runs build + selftest + `build-app.sh` on
 tag creates a GitHub Release with the zipped `.app`, stamping the tag version
 into Info.plist via the `APP_VERSION` override. Zipping uses `ditto`, not
 `zip`, so the bundle layout and ad-hoc signature survive. The workflow also
-has a `workflow_dispatch` trigger, so it can be run manually from a feature
-branch (`gh workflow run "Build & Package" --ref <branch>`) without merging.
+has a `workflow_dispatch` trigger, so it can be run manually once it is on
+the default branch (`gh workflow run "Build & Package"`).
+
+CI sets `UNIVERSAL=1`, so the packaged binary is universal (`lipo`-merged
+native + cross-compiled slice): `macos-latest` is an arm64-only runner, but
+the released app must also run on Intel Macs. Note `swift build --arch x
+--arch y` (multi-arch in one invocation) requires the Xcode build system and
+**fails under Command Line Tools** — the universal path is two plain builds
+plus `lipo` (see `scripts/build-app.sh`).
 
 `swift test` is **forbidden** — XCTest is not shipped with Command Line Tools
 (`error: XCTest not available`). Any `testTarget` breaks the build. Automated

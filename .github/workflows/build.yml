@@ -23,6 +23,11 @@ on:
 permissions:
   contents: write # needed to create GitHub Releases on tag push
 
+# Universal binary: macos-latest is arm64-only, but the released app must
+# also run on Intel Macs (see scripts/build-app.sh UNIVERSAL).
+env:
+  UNIVERSAL: "1"
+
 jobs:
   build:
     name: Build, selftest, package
@@ -51,6 +56,11 @@ jobs:
 
       - name: Assemble PTMonitor.app
         run: ./scripts/build-app.sh
+
+      # The packaged binary is the shipped artifact — self-test it too, not
+      # just the intermediate `swift run` build above.
+      - name: Self-test packaged app
+        run: build/PTMonitor.app/Contents/MacOS/PTMonitor --selftest
 
       # ditto (not zip) so the bundle structure and codesign survive zipping.
       - name: Zip the .app

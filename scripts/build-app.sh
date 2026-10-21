@@ -16,6 +16,12 @@ APP_NAME="PTMonitor"
 # Overridable so CI can stamp a tag's version (e.g. v0.2.0 -> 0.2.0) into
 # Info.plist; locally the hard default applies.
 APP_VERSION="${APP_VERSION:-0.1.0}"
+# UNIVERSAL=1 lipo-merges a native and a cross-compiled slice into a
+# universal binary (CI wants this: macos-latest is arm64-only, and Intel
+# Macs must still run the released app). Uses two plain SwiftPM builds +
+# lipo — NOT `swift build --arch x --arch y`, which needs xcbuild (absent
+# under Command Line Tools).
+UNIVERSAL="${UNIVERSAL:-0}"
 CONFIGURATION="release"
 
 BUILD_DIR="$ROOT/build"
@@ -26,7 +32,19 @@ echo "==> swift build -c $CONFIGURATION"
 swift build -c "$CONFIGURATION"
 
 BIN_DIR="$(swift build -c "$CONFIGURATION" --show-bin-path)"
+
 BIN="$BIN_DIR/$APP_NAME"
+if [[ "$UNIVERSAL" == "1" ]]; then
+    HOST_ARCH="$(uname -m)"
+    OTHER_ARCH="arm64"; [[ "$HOST_ARCH" == "arm64" ]] && OTHER_ARCH="x86_64"
+    echo "==> swift build -c $CONFIGURATION --arch $OTHER_ARCH (cross slice)"
+    swift build -c "$CONFIGURATION" --arch "$OTHER_ARCH"
+    OTHER_BIN="$(swift build -c "$CONFIGURATION" --arch "$OTHER_ARCH" --show-bin-path)/$APP_NAME"
+    UNIVERSAL_BIN="$BUILD_DIR/$APP_NAME-universal"
+    lipo -create "$BIN" "$OTHER_BIN" -output "$UNIVERSAL_BIN"
+    BIN="$UNIVERSAL_BIN"
+    echo "==> universal binary: $(lipo -archs "$BIN")"
+fi
 
 if [[ ! -x "$BIN" ]]; then
     echo "error: built binary not found at $BIN" >&2
