@@ -40,11 +40,11 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="${GITHUB_REF_NAME#v}"
             echo "APP_VERSION=$version" >> "$GITHUB_ENV"
-            echo "ZIP_NAME=PTMonitor-$version-macOS.zip" >> "$GITHUB_ENV"
+            echo "DMG_NAME=PTMonitor-$version-macOS.dmg" >> "$GITHUB_ENV"
             echo "ARTIFACT_NAME=PTMonitor-$version-macOS" >> "$GITHUB_ENV"
           else
             sha="${GITHUB_SHA::7}"
-            echo "ZIP_NAME=PTMonitor-0.1.0-dev.$sha-macOS.zip" >> "$GITHUB_ENV"
+            echo "DMG_NAME=PTMonitor-0.1.0-dev.$sha-macOS.dmg" >> "$GITHUB_ENV"
             echo "ARTIFACT_NAME=PTMonitor-main-$sha-macOS" >> "$GITHUB_ENV"
           fi
 
@@ -62,17 +62,21 @@ jobs:
       - name: Self-test packaged app
         run: build/PTMonitor.app/Contents/MacOS/PTMonitor --selftest
 
-      # ditto (not zip) so the bundle structure and codesign survive zipping.
-      - name: Zip the .app
+      # DMG (standard Mac install format) instead of a zip: users mount it
+      # and drag the app to /Applications. hdiutil preserves the bundle and
+      # its ad-hoc codesign. Release assets are attached as-is (no wrapper);
+      # workflow artifacts get GitHub's single unavoidable zip wrap.
+      - name: Create DMG
         run: |
-          ditto -c -k --keepParent build/PTMonitor.app "$ZIP_NAME"
-          ls -lh "$ZIP_NAME"
+          hdiutil create -volname PTMonitor -srcfolder build/PTMonitor.app \
+            -ov -format UDZO "$DMG_NAME"
+          ls -lh "$DMG_NAME"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: ${{ env.ZIP_NAME }}
+          path: ${{ env.DMG_NAME }}
           if-no-files-found: error
 
       # Releases are cut by pushing a v* tag; merges to main only produce
@@ -82,7 +86,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "$ZIP_NAME" \
+          gh release create "$GITHUB_REF_NAME" "$DMG_NAME" \
             --title "PTMonitor $APP_VERSION" \
             --notes "Ad-hoc signed build (no Developer ID). On first launch macOS may quarantine the downloaded app — right-click > Open, or run: xattr -dr com.apple.quarantine PTMonitor.app" \
             --generate-notes
