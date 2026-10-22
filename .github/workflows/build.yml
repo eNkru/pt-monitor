@@ -33,7 +33,7 @@ jobs:
     name: Build, selftest, package
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Resolve version
         run: |
@@ -73,7 +73,7 @@ jobs:
           ls -lh "$DMG_NAME"
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: ${{ env.DMG_NAME }}
