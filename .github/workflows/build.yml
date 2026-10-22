@@ -41,11 +41,9 @@ jobs:
             version="${GITHUB_REF_NAME#v}"
             echo "APP_VERSION=$version" >> "$GITHUB_ENV"
             echo "DMG_NAME=PTMonitor-$version-macOS.dmg" >> "$GITHUB_ENV"
-            echo "ARTIFACT_NAME=PTMonitor-$version-macOS" >> "$GITHUB_ENV"
           else
             sha="${GITHUB_SHA::7}"
             echo "DMG_NAME=PTMonitor-0.1.0-dev.$sha-macOS.dmg" >> "$GITHUB_ENV"
-            echo "ARTIFACT_NAME=PTMonitor-main-$sha-macOS" >> "$GITHUB_ENV"
           fi
 
       - name: Build (release)
@@ -72,12 +70,14 @@ jobs:
             -ov -format UDZO "$DMG_NAME"
           ls -lh "$DMG_NAME"
 
+      # archive: false (upload-artifact v7) uploads the single DMG as-is,
+      # so downloading the workflow artifact gives the raw .dmg — no extra
+      # zip wrapper around it.
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.ARTIFACT_NAME }}
           path: ${{ env.DMG_NAME }}
-          if-no-files-found: error
+          archive: false
 
       # Releases are cut by pushing a v* tag; merges to main only produce
       # the artifact above, so the hardcoded version never collides.
