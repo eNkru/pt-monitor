@@ -24,12 +24,13 @@ build/PTMonitor.app/Contents/MacOS/PTMonitor \
 ```
 
 CI (`.github/workflows/build.yml`) runs build + selftest + `build-app.sh` on
-`macos-latest`: pushes to `main` produce a workflow artifact; pushing a `v*`
-tag creates a GitHub Release with the zipped `.app`, stamping the tag version
-into Info.plist via the `APP_VERSION` override. Zipping uses `ditto`, not
-`zip`, so the bundle layout and ad-hoc signature survive. The workflow also
-has a `workflow_dispatch` trigger, so it can be run manually once it is on
-the default branch (`gh workflow run "Build & Package"`).
+`macos-latest` **only for pushed `v*` tags**: the tag creates a GitHub Release
+with the zipped `.app`, stamping the tag version into Info.plist via the
+`APP_VERSION` override. Pushes to `main` do not build. Zipping uses `ditto`,
+not `zip`, so the bundle layout and ad-hoc signature survive. The workflow
+also has a `workflow_dispatch` trigger for manual dev builds (artifact only,
+no Release), usable once it is on the default branch
+(`gh workflow run "Build & Package"`).
 
 CI sets `UNIVERSAL=1`, so the packaged binary is universal (`lipo`-merged
 native + cross-compiled slice): `macos-latest` is an arm64-only runner, but

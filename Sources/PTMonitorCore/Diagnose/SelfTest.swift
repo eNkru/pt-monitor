@@ -684,6 +684,28 @@ public enum SelfTest {
             TorrentSummary(id: "3", name: "Seeding", state: .seeding, progress: 1, upSpeed: 1).isActive,
             true
         )
+
+        // The segmented list filter is defined by live traffic, direction by
+        // direction: a mode matches only while that direction actually moves,
+        // and `.active` is exactly the union of the two.
+        let idle = TorrentSummary(id: "4", name: "Idle", state: .paused, progress: 1)
+        let down = TorrentSummary(id: "5", name: "Down", state: .downloading, progress: 0.5, downSpeed: 1)
+        let up = TorrentSummary(id: "6", name: "Up", state: .seeding, progress: 1, upSpeed: 1)
+        let both = TorrentSummary(id: "7", name: "Both", state: .seeding, progress: 1, downSpeed: 1, upSpeed: 1)
+        let stalled = TorrentSummary(id: "8", name: "Stalled", state: .stalled, progress: 0.5, downSpeed: 1)
+
+        for (mode, expected) in [
+            (TorrentListMode.all, [true, true, true, true, true]),
+            (TorrentListMode.downloading, [false, true, false, true, true]),
+            (TorrentListMode.uploading, [false, false, true, true, false]),
+            (TorrentListMode.active, [false, true, true, true, true])
+        ] {
+            let actual = [idle, down, up, both, stalled].map(mode.matches)
+            try c.expect("list mode \(mode.rawValue) matches", actual, expected)
+        }
+        // A stalled-but-trickling torrent is still a live download: the filter
+        // reads traffic, not the state name.
+        try c.expect("stalled with traffic matches downloading", TorrentListMode.downloading.matches(stalled), true)
     }
 
     // MARK: - Torrent row presentation checks (torrent list redesign)
@@ -903,7 +925,7 @@ public enum SelfTest {
         try c.expect("settings start empty", settings.servers.count, 0)
         try c.expect("settings default interval", settings.pollInterval, 2)
         try c.expect("settings default show-speeds", settings.showSpeedsInMenuBar, true)
-        try c.expect("settings default show-active-only", settings.showActiveTorrentsOnly, false)
+        try c.expect("settings default show-active-only", settings.torrentListMode, TorrentListMode.all)
 
         var server = ServerConfig(kind: .qbittorrent, name: "NAS", host: "192.168.1.2", port: 8080)
         settings.add(server)
@@ -923,15 +945,28 @@ public enum SelfTest {
         try c.expect("settings clamps interval high", settings.pollInterval, 60)
         settings.setShowSpeedsInMenuBar(false)
         try c.expect("settings show-speeds off persisted", settings.showSpeedsInMenuBar, false)
-        settings.setShowActiveTorrentsOnly(true)
-        try c.expect("settings show-active-only on persisted", settings.showActiveTorrentsOnly, true)
+        settings.setTorrentListMode(.uploading)
+        try c.expect("settings list mode persisted", settings.torrentListMode, TorrentListMode.uploading)
 
         // Reload through a fresh store on the same suite: proves persistence.
         let reloaded = SettingsStore(defaults: defaults)
         try c.expect("settings reload server count", reloaded.servers.count, 1)
         try c.expect("settings reload interval", reloaded.pollInterval, 60)
         try c.expect("settings reload show-speeds", reloaded.showSpeedsInMenuBar, false)
-        try c.expect("settings reload show-active-only", reloaded.showActiveTorrentsOnly, true)
+        try c.expect("settings reload show-active-only", reloaded.torrentListMode, TorrentListMode.uploading)
+
+        // Migration: a store written by an older build only has the legacy
+        // boolean. `true` must come back as `.active`, not as the full list.
+        let legacySuite = "com.ptmonitor.PTMonitor.selftest.legacy.\(UUID().uuidString)"
+        if let legacyDefaults = UserDefaults(suiteName: legacySuite) {
+            defer { legacyDefaults.removePersistentDomain(forName: legacySuite) }
+            legacyDefaults.set(true, forKey: SettingsStore.Key.showActiveTorrentsOnly)
+            try c.expect(
+                "legacy active-only migrates to active mode",
+                SettingsStore(defaults: legacyDefaults).torrentListMode,
+                TorrentListMode.active
+            )
+        }
 
         settings.delete(id: server.id)
         try c.expect("settings delete", settings.servers.count, 0)

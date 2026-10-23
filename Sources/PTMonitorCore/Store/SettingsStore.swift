@@ -22,6 +22,9 @@ public final class SettingsStore: ObservableObject {
         public static let servers = "servers"
         public static let pollInterval = "pollInterval"
         public static let showSpeedsInMenuBar = "showSpeedsInMenuBar"
+        public static let torrentListMode = "torrentListMode"
+        /// Legacy boolean (`true` meant "active only"); read once as a
+        /// migration fallback by `loadTorrentListMode`.
         public static let showActiveTorrentsOnly = "showActiveTorrentsOnly"
         public static let appLanguage = "appLanguage"
         /// The per-app language override; the only key read at launch, so a
@@ -47,10 +50,10 @@ public final class SettingsStore: ObservableObject {
     /// Whether the menu bar shows live speed text alongside the icon (R5.3).
     @Published public private(set) var showSpeedsInMenuBar: Bool
 
-    /// Whether the dropdown's torrent list shows only torrents that currently
-    /// transfer data in either direction (down/up speed > 0). Display-only:
-    /// changing it never rebuilds the pollers.
-    @Published public private(set) var showActiveTorrentsOnly: Bool
+    /// Which slice of the torrent library the dropdown lists: all, actually
+    /// downloading, actually uploading, or either. Display-only: changing it
+    /// never rebuilds the pollers.
+    @Published public private(set) var torrentListMode: TorrentListMode
 
     /// In-app language choice (R9 switcher), applied to `AppleLanguages` in
     /// `setAppLanguage` so the two can never drift apart.
@@ -61,7 +64,7 @@ public final class SettingsStore: ObservableObject {
         self.servers = Self.loadServers(from: defaults)
         self.pollInterval = Self.loadPollInterval(from: defaults)
         self.showSpeedsInMenuBar = Self.loadShowSpeeds(from: defaults)
-        self.showActiveTorrentsOnly = Self.loadShowActiveTorrentsOnly(from: defaults)
+        self.torrentListMode = Self.loadTorrentListMode(from: defaults)
         self.appLanguage = Self.loadAppLanguage(from: defaults)
     }
 
@@ -126,13 +129,13 @@ public final class SettingsStore: ObservableObject {
         defaults.set(isEnabled, forKey: Key.showSpeedsInMenuBar)
     }
 
-    /// Filters the dropdown's torrent list down to torrents with live traffic.
-    /// Display-only (R12): the pollers and snapshots are untouched, so this
-    /// never needs to rebuild anything.
-    public func setShowActiveTorrentsOnly(_ isEnabled: Bool) {
-        guard isEnabled != showActiveTorrentsOnly else { return }
-        showActiveTorrentsOnly = isEnabled
-        defaults.set(isEnabled, forKey: Key.showActiveTorrentsOnly)
+    /// Switches the dropdown's torrent filter (all / downloading / uploading /
+    /// active). Display-only (R12): the pollers and snapshots are untouched, so
+    /// this never needs to rebuild anything.
+    public func setTorrentListMode(_ mode: TorrentListMode) {
+        guard mode != torrentListMode else { return }
+        torrentListMode = mode
+        defaults.set(mode.rawValue, forKey: Key.torrentListMode)
     }
 
     /// Sets the UI language and applies the matching `AppleLanguages`
@@ -189,10 +192,17 @@ public final class SettingsStore: ObservableObject {
         defaults.object(forKey: Key.showSpeedsInMenuBar) as? Bool ?? true
     }
 
-    /// Defaults to `false`: the full list is the established behaviour, so the
-    /// filter is opt-in.
-    private static func loadShowActiveTorrentsOnly(from defaults: UserDefaults) -> Bool {
-        defaults.object(forKey: Key.showActiveTorrentsOnly) as? Bool ?? false
+    /// The persisted list mode; an unset or unknown value falls back to `.all`.
+    ///
+    /// The legacy `showActiveTorrentsOnly` boolean is honoured as a migration
+    /// source — an existing user who had the filter on keeps an equivalent
+    /// view (`.active`) instead of silently getting the full library back.
+    private static func loadTorrentListMode(from defaults: UserDefaults) -> TorrentListMode {
+        if let raw = defaults.string(forKey: Key.torrentListMode),
+           let mode = TorrentListMode(rawValue: raw) {
+            return mode
+        }
+        return defaults.bool(forKey: Key.showActiveTorrentsOnly) ? .active : .all
     }
 
     /// The persisted in-app language choice; an unset or unknown key means
