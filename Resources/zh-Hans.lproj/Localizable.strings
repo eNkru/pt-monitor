@@ -85,7 +85,6 @@
 "No servers configured. Add a qBittorrent or Transmission server to start monitoring." = "尚未配置服务器。添加一台 qBittorrent 或 Transmission 服务器即可开始监控。";
 "Poll every %lld seconds" = "每 %lld 秒轮询一次";
 "Show speeds in the menu bar" = "在菜单栏显示速度";
-"Show active torrents only" = "仅显示活动中的种子";
 
 /* Language switcher (R9 in-app revision) */
 "Follow System" = "跟随系统";
@@ -103,3 +102,11 @@
 "Category" = "分类";
 "Working" = "正常";
 "Not working" = "不可用";
+"Torrents shown in the panel" = "面板中显示的种子";
+"All" = "全部";
+"↓ Down" = "↓ 下载";
+"↑ Up" = "↑ 上传";
+"Active" = "活动";
+"No downloading torrents." = "没有下载中的种子。";
+"No uploading torrents." = "没有上传中的种子。";
+"Torrents" = "种子";

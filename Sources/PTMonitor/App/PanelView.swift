@@ -79,6 +79,8 @@ struct PanelView: View {
                     .padding(.top, 12)
                 hairline
                     .padding(.top, 12)
+                listModePicker
+                    .padding(.top, 10)
                 serverSections
             }
             footer
@@ -212,6 +214,33 @@ struct PanelView: View {
         }
     }
 
+    // MARK: - List filter
+
+    /// All / ↓ Down / ↑ Up / Active. Lives in the panel rather than Preferences
+    /// because it changes what the panel shows, not how the app is configured;
+    /// it is still persisted, so the choice survives relaunch.
+    private var listModePicker: some View {
+        Picker(selection: listModeBinding) {
+            ForEach(TorrentListMode.allCases, id: \.self) { mode in
+                Text(L10n.listMode(mode)).tag(mode)
+            }
+        } label: {
+            Text("Torrents")
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.small)
+        .accessibilityLabel(Text("Torrents"))
+    }
+
+    /// Display-only, like the old view: no `PanelController` rebuild on change.
+    private var listModeBinding: Binding<TorrentListMode> {
+        Binding(
+            get: { settings.torrentListMode },
+            set: { settings.setTorrentListMode($0) }
+        )
+    }
+
     // MARK: - Per-server sections
 
     private var enabledServers: [ServerConfig] {
@@ -242,7 +271,7 @@ struct PanelView: View {
 
     private func section(_ server: ServerConfig) -> some View {
         let status = monitor.statuses[server.id] ?? .connecting
-        // Filter first, cap second: when "active only" is on, rows and the
+        // Filter first, cap second: with a mode other than `.all`, rows and the
         // "+ N more" footnote are both computed against the filtered array.
         // Clients already applied the fixed sort (design §6.1), and filtering
         // preserves that order; there is deliberately no user-facing sort UI.
@@ -252,7 +281,8 @@ struct PanelView: View {
         } else {
             library = []
         }
-        let candidates = settings.showActiveTorrentsOnly ? library.filter(\.isActive) : library
+        let mode = settings.torrentListMode
+        let candidates = library.filter(mode.matches)
         // Only the first `maxVisibleTorrentsPerServer` rows render; the rest
         // collapses into the footnote below (performance: see the constant).
         let visible = Array(candidates.prefix(Self.maxVisibleTorrentsPerServer))
@@ -267,12 +297,12 @@ struct PanelView: View {
             switch status {
             case .online:
                 if candidates.isEmpty {
-                    // Filter on + non-empty library + nothing transferring is
-                    // its own state; an actually empty library stays "No
-                    // torrents." either way.
-                    note(settings.showActiveTorrentsOnly && !library.isEmpty
-                        ? L10n.noActiveTorrents
-                        : L10n.torrentsEmpty)
+                    // Filter on + non-empty library + nothing matching is its
+                    // own state; an actually empty library stays "No torrents."
+                    // whatever the mode is.
+                    note(library.isEmpty
+                        ? L10n.torrentsEmpty
+                        : L10n.noTorrents(for: mode))
                 } else {
                     // No hairline between rows: the rows' own vertical padding
                     // carries the rhythm, and a rule on every row was visual

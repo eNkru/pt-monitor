@@ -50,7 +50,14 @@ struct PreferencesView: View {
 
             Toggle("Show speeds in the menu bar", isOn: showSpeedsBinding)
 
-            Toggle("Show active torrents only", isOn: showActiveTorrentsOnlyBinding)
+            Picker(selection: torrentListModeBinding) {
+                ForEach(TorrentListMode.allCases, id: \.self) { mode in
+                    Text(L10n.listMode(mode)).tag(mode)
+                }
+            } label: {
+                Text("Torrents shown in the panel")
+            }
+            .pickerStyle(.segmented)
 
             Divider()
 
@@ -126,10 +133,10 @@ struct PreferencesView: View {
 
     /// Display-only: mirrors `showSpeedsBinding` and deliberately does not call
     /// `onChange()` — filtering the list never rebuilds the pollers.
-    private var showActiveTorrentsOnlyBinding: Binding<Bool> {
+    private var torrentListModeBinding: Binding<TorrentListMode> {
         Binding(
-            get: { settings.showActiveTorrentsOnly },
-            set: { settings.setShowActiveTorrentsOnly($0) }
+            get: { settings.torrentListMode },
+            set: { settings.setTorrentListMode($0) }
         )
     }
 }

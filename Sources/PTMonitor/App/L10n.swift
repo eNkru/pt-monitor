@@ -74,7 +74,28 @@ enum L10n {
     // MARK: - Per-server sections
 
     static var torrentsEmpty: String { s("No torrents.") }
-    static var noActiveTorrents: String { s("No active torrents.") }
+
+    /// Segmented list-filter labels. Kept short so four segments fit the fixed
+    /// panel width; the arrows carry the direction without a sentence.
+    static func listMode(_ mode: TorrentListMode) -> String {
+        switch mode {
+        case .all: return s("All")
+        case .downloading: return s("↓ Down")
+        case .uploading: return s("↑ Up")
+        case .active: return s("Active")
+        }
+    }
+
+    /// Shown instead of rows when the active filter matches nothing but the
+    /// library is not empty.
+    static func noTorrents(for mode: TorrentListMode) -> String {
+        switch mode {
+        case .all: return torrentsEmpty
+        case .downloading: return s("No downloading torrents.")
+        case .uploading: return s("No uploading torrents.")
+        case .active: return s("No active torrents.")
+        }
+    }
     static var connecting: String { s("Connecting…") }
     static var disabled: String { s("Disabled") }
 

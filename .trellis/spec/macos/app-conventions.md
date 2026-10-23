@@ -200,8 +200,9 @@ proactive Basic-auth header). Do not delete the task-level forwarder as
 
 - `UserDefaults` (via `SettingsStore` only): `servers` as JSON `[ServerConfig]`,
   `pollInterval` (default 2, clamp 1–60), `showSpeedsInMenuBar`,
-  `showActiveTorrentsOnly` (default `false`, display-only — changing it never
-  rebuilds pollers).
+  `torrentListMode` (default `all`, display-only — changing it never rebuilds
+  pollers; the legacy boolean `showActiveTorrentsOnly` is still read as a
+  migration fallback, `true` → `active`).
 - Passwords live **only** in the Keychain (`KeychainStore`,
   `kSecClassGenericPassword`, `service = <bundle-id>.server`,
   `account = <server UUID>`). Write only when non-empty; delete on clear or
@@ -269,12 +270,17 @@ proactive Basic-auth header). Do not delete the task-level forwarder as
   `PanelView.maxVisibleTorrentsPerServer` (100) rows per server in the
   clients' fixed sort order, followed by a localized "+ N more torrents"
   footnote (plain text — no "show all" action, R8).
-- **Opt-in active-only filter** (`showActiveTorrentsOnly`): rows are filtered
-  to `TorrentSummary.isActive` (down/up speed > 0, pure + `--selftest`-covered)
-  **before** the 100-row cap; the footnote counts the filtered array. With the
-  filter on, a non-empty library with nothing transferring shows the localized
-  "No active torrents." note (vs "No torrents." for an actually empty
-  library). The aggregate grid's server-reported counts are unaffected.
+- **List filter** (`torrentListMode`): a segmented control in the panel
+  (All / ↓ Down / ↑ Up / Active — persisted, and mirrored in Preferences).
+  Rows are filtered by `TorrentListMode.matches` (pure + `--selftest`-covered)
+  **before** the 100-row cap; the footnote counts the filtered array. The
+  directional modes test **live traffic** (`downSpeed > 0` / `upSpeed > 0`),
+  not the state name — a stalled-but-trickling torrent still counts as
+  downloading, and `active` is exactly the union (same definition as
+  `TorrentSummary.isActive`). A non-empty library with nothing matching shows a
+  mode-specific note ("No downloading torrents." / "No uploading torrents." /
+  "No active torrents.") vs "No torrents." for an actually empty library. The
+  aggregate grid's server-reported counts are unaffected.
 - **Torrent row anatomy** (redesigned 2026-10-18, extended 2026-10-20): a state
   dot + name (`lineLimit(2)`, tail truncation), a full-row-width capsule
   progress bar (7pt, filled with `PanelView.color(for:)`) with a monospaced
