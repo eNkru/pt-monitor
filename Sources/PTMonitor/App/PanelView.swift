@@ -50,6 +50,34 @@ struct PanelView: View {
     /// pill meter was near-invisible); the bar spans the whole row width.
     private static let progressBarHeight: CGFloat = 7
 
+    /// Height of the bottom fade that says "the list continues". The section
+    /// scroll view has no scrollers (they flashed on every relayout and read as
+    /// clutter in a transient panel), so this fade plus wheel scrolling is the
+    /// only affordance signalling that there is more to see.
+    private static let fadeHeight: CGFloat = 30
+    /// Coordinate space used to measure the scroll offset against the viewport.
+    private static let scrollSpace = "panelTorrentScroll"
+    /// Anchor id of the zero-height marker at the very top of the list content;
+    /// the mode-change reset scrolls to it.
+    private static let listTopAnchor = "panelListTop"
+
+    /// Measured scroll state of the section list: total content height and how
+    /// far it is scrolled. Drives the bottom fade, so the hint disappears at the
+    /// end of the list instead of being a permanent decoration.
+    private struct ScrollMetrics: Equatable {
+        var contentHeight: CGFloat = 0
+        var offset: CGFloat = 0
+    }
+
+    private struct ScrollMetricsKey: PreferenceKey {
+        static var defaultValue = ScrollMetrics()
+        static func reduce(value: inout ScrollMetrics, nextValue: () -> ScrollMetrics) {
+            value = nextValue()
+        }
+    }
+
+    @State private var scrollMetrics = ScrollMetrics()
+
     /// Which torrent row is expanded in place (R7). At most one at a time:
     /// assigning a different id replaces the previous expansion. Pure view
     /// state — it performs no network call and mutates nothing on the server
@@ -105,18 +133,26 @@ struct PanelView: View {
             LinearGradient(
                 colors: [
                     Color(red: 0x23 / 255.0, green: 0x23 / 255.0, blue: 0x26 / 255.0),
-                    Color(red: 0x14 / 255.0, green: 0x14 / 255.0, blue: 0x16 / 255.0)
+                    cardGradientBottom
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
         } else {
             LinearGradient(
-                colors: [Color(white: 0.99), Color(white: 0.95)],
+                colors: [Color(white: 0.99), cardGradientBottom],
                 startPoint: .top,
                 endPoint: .bottom
             )
         }
+    }
+
+    /// The card gradient's bottom stop, shared by the fade so the two can never
+    /// drift apart.
+    private var cardGradientBottom: Color {
+        colorScheme == .dark
+            ? Color(red: 0x14 / 255.0, green: 0x14 / 255.0, blue: 0x16 / 255.0)
+            : Color(white: 0.95)
     }
 
     /// Hairline border: ~8% white in dark mode, ~10% black in light mode.
@@ -252,21 +288,86 @@ struct PanelView: View {
     /// materialises every torrent row of every server up front — thousands of
     /// truncating texts and meters for a large library — while the lazy
     /// variant builds only what is visible.
+    ///
+    /// No scrollers (`showsIndicators: false`): they auto-appear on every
+    /// relayout, which in a panel that resizes itself to its content reads as a
+    /// flicker. Wheel/trackpad scrolling is unaffected, and the bottom fade
+    /// (`bottomOverflowFade`) carries the "there is more" signal instead.
     private var serverSections: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(enabledServers.enumerated()), id: \.element.id) { index, server in
-                    if index > 0 {
-                        hairline
-                            .padding(.bottom, 6)
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    // Zero-height top marker: the mode-change reset scrolls to
+                    // this, not to an offset — rows have variable heights.
+                    Color.clear
+                        .frame(height: 0)
+                        .id(Self.listTopAnchor)
+                    ForEach(Array(enabledServers.enumerated()), id: \.element.id) { index, server in
+                        if index > 0 {
+                            hairline
+                                .padding(.bottom, 6)
+                        }
+                        section(server)
                     }
-                    section(server)
                 }
+                .background(scrollMetricsProbe)
+            }
+            .coordinateSpace(name: Self.scrollSpace)
+            .frame(maxHeight: Self.sectionScrollMaxHeight)
+            .overlay(alignment: .bottom) { bottomOverflowFade }
+            .onPreferenceChange(ScrollMetricsKey.self) { scrollMetrics = $0 }
+            .onChange(of: settings.torrentListMode) { _ in
+                // Switching tabs swaps the whole row set, so the previous
+                // scroll position is meaningless — reset to the top (user
+                // request: fresh view per tab).
+                proxy.scrollTo(Self.listTopAnchor, anchor: .top)
+                // Drop the measured state too: the preference pass for the
+                // new content reports the real top soon after.
+                scrollMetrics = ScrollMetrics()
             }
         }
-        .frame(maxHeight: Self.sectionScrollMaxHeight)
         .padding(.top, 10)
         .padding(.bottom, 2)
+    }
+
+    /// Reports the content height and scroll offset of the section list. A
+    /// `GeometryReader` in a `background` sits exactly on the content's frame,
+    /// so its offset in the named space is the negated scroll offset.
+    private var scrollMetricsProbe: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: ScrollMetricsKey.self,
+                value: ScrollMetrics(
+                    contentHeight: proxy.size.height,
+                    offset: -proxy.frame(in: .named(Self.scrollSpace)).minY
+                )
+            )
+        }
+    }
+
+    /// Visible viewport of the section list (`frame(maxHeight:)` caps it).
+    private var viewportHeight: CGFloat {
+        min(scrollMetrics.contentHeight, Self.sectionScrollMaxHeight)
+    }
+
+    /// True while rows are hidden below the viewport — the fade is drawn exactly
+    /// then, and vanishes once the list is scrolled to its end.
+    private var showsBottomFade: Bool {
+        scrollMetrics.contentHeight - (scrollMetrics.offset + viewportHeight) > 4
+    }
+
+    /// Bottom edge fade to the card's own fill: a soft "more below" cue that
+    /// adds no chrome and swallows no clicks.
+    @ViewBuilder private var bottomOverflowFade: some View {
+        if showsBottomFade {
+            LinearGradient(
+                colors: [cardGradientBottom.opacity(0), cardGradientBottom],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: Self.fadeHeight)
+            .allowsHitTesting(false)
+        }
     }
 
     private func section(_ server: ServerConfig) -> some View {
