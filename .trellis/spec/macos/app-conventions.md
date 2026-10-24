@@ -386,6 +386,22 @@ proactive Basic-auth header). Do not delete the task-level forwarder as
   network call and mutates nothing server-side; they must never carry a server
   action. Sections carry no actions; the footer rows are the only entries that
   act on anything.
+- **Web-UI link (carve-out to the read-only rule).** Opening a browser is an
+  *interaction*, not a server action: it issues no RPC, needs no session cookie
+  and reads no Keychain entry (the browser's own session applies), so it may
+  sit on a row. The affordance is a small trailing `arrow.up.forward.square`
+  icon on the row's **name line** — visible without expanding, one click, no
+  detour — with an `L10n` `help` tooltip; a plain `.buttonStyle` keeps it from
+  also toggling the expansion, which only the row body does. The URL is always
+  the **row's own server** (`ServerConfig.webUIURL()` from that section's
+  config, never a "current" global): `EndpointParser.baseURL` for scheme/host/
+  port plus `/transmission/web/` for Transmission, nothing for qBittorrent. No
+  fragment and no query are appended — neither upstream web UI accepts a
+  per-torrent link (qBittorrent only `#download=<url>`, Transmission only
+  `?addtorrent=`), so their own in-memory selection decides. An unusable host
+  just does nothing; the row still works. Clicking a row still expands it, and
+  the icon is 11pt on the existing line, so the collapsed height and the 380pt
+  width are unchanged.
 
 ## 8. Tests required
 

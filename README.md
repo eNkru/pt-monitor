@@ -15,6 +15,10 @@ speeds, and ETA.
   RPC endpoints; each gets its own section in the panel.
 - **Per-torrent rows** — two-line layout: name at full width, progress pill +
   speeds + ETA underneath, sorted by a fixed order (design §6.1).
+- **Open the web UI from a row** — a small trailing icon on each torrent's name
+  line opens *that row's server's* own web UI in the default browser, for the
+  things the panel does not do (rename, files, peers, category). No deep link is
+  possible (neither client supports one), no request leaves the app.
 - **Resilient polling** — one `Task` per enabled server; transient failures
   retry quickly, while healthy servers respect the user-configured interval
   (1–60 s).
