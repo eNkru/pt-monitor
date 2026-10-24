@@ -225,6 +225,20 @@ public enum SelfTest {
             _ = try ServerConfigValidator.validate(
                 ServerConfig(kind: .qbittorrent, host: "   "), portText: "")
         }
+
+        // WebUI URL (row affordance): derived from the server's own host/port/
+        // scheme, and the RPC-only path prefix for Transmission.
+        let plainURL = try ServerConfig(kind: .qbittorrent, host: "nas.local", port: 8080).webUIURL().absoluteString
+        try c.expect("webui url: qbittorrent", plainURL, "http://nas.local:8080")
+        let tlsURL = try ServerConfig(kind: .qbittorrent, host: "nas.local", port: 8443, useTLS: true)
+            .webUIURL().absoluteString
+        try c.expect("webui url: qbittorrent tls", tlsURL, "https://nas.local:8443")
+        let transmissionURL = try ServerConfig(kind: .transmission, host: "nas.local", port: 9092)
+            .webUIURL().absoluteString
+        try c.expect("webui url: transmission web path", transmissionURL, "http://nas.local:9092/transmission/web/")
+        try c.expectFailure("webui url: invalid host") {
+            _ = try ServerConfig(kind: .qbittorrent, host: "   ", port: 8080).webUIURL()
+        }
     }
 
     // MARK: - Probe mode (step 10, AC13)

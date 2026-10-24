@@ -105,6 +105,11 @@ enum L10n {
         String(format: s("%lld more torrents"), count)
     }
 
+    /// Tooltip of a row's web-UI button; `%@` is the server's display name.
+    static func openInWebUI(_ serverName: String) -> String {
+        String(format: s("Open %@ web UI"), serverName)
+    }
+
     // MARK: - Expanded torrent detail (R8)
 
     /// The three parts of one expanded-row detail cell.

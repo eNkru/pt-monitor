@@ -72,4 +72,24 @@ public struct ServerConfig: Codable, Identifiable, Equatable, Sendable {
     public var endpointDescription: String {
         "\(host):\(port)"
     }
+
+    /// URL of this server's own web UI, for opening it in the browser.
+    ///
+    /// Built from this config's own `host`/`port`/`useTLS` through
+    /// `EndpointParser.baseURL`, so the URL agrees with what the client would
+    /// talk to (same `HostFieldParser`). Throws when the host is unusable.
+    ///
+    /// Neither upstream web UI supports selecting a torrent by URL —
+    /// qBittorrent only understands `#download=<url>`, Transmission only
+    /// `?addtorrent=` — so neither fragment nor query is appended and the UI's
+    /// own state decides what is shown.
+    ///
+    /// The kind branch lives here rather than in the view so no caller has to
+    /// switch on `ServerKind` (app-conventions §3). `/transmission/web/` mirrors
+    /// the hardcoded `/transmission/rpc` RPC path in `TransmissionClient`.
+    public func webUIURL() throws -> URL {
+        let base = try EndpointParser.baseURL(host: host, port: port, useTLS: useTLS)
+        guard kind == .transmission else { return base }
+        return base.appendingPathComponent("transmission/web/")
+    }
 }

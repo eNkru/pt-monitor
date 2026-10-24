@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import PTMonitorCore
 
 /// The entire dropdown as one SwiftUI view, rendered inside the CodexBar-style
@@ -409,7 +410,7 @@ struct PanelView: View {
                     // carries the rhythm, and a rule on every row was visual
                     // noise (design §separators).
                     ForEach(visible, id: \.id) { torrent in
-                        row(torrent, hoistedSite: hoisted)
+                        row(torrent, server: server, hoistedSite: hoisted)
                     }
                     if candidates.count > visible.count {
                         note(L10n.moreTorrents(candidates.count - visible.count))
@@ -485,8 +486,10 @@ struct PanelView: View {
     /// aligned, so the collapsed row gains no height (R4/R9).
     ///
     /// A click expands the row in place (view state only — no network call, no
-    /// server mutation, so the read-only contract still holds).
-    private func row(_ torrent: TorrentSummary, hoistedSite: String?) -> some View {
+    /// server mutation, so the read-only contract still holds). The trailing
+    /// icon opens the row's own server's web UI in the browser: still no
+    /// request of ours, and the button consumes its own click (R: no toggle).
+    private func row(_ torrent: TorrentSummary, server: ServerConfig, hoistedSite: String?) -> some View {
         let expanded = expandedTorrentID == torrent.id
         return VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline, spacing: Self.layerSpacing) {
@@ -498,6 +501,16 @@ struct PanelView: View {
                     .lineLimit(2)
                     .truncationMode(.tail)
                     .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                // Sits on the name line, so it costs no collapsed height; the
+                // 4pt spacer only shortens the name's wrap width.
+                Button { openWebUI(server) } label: {
+                    Image(systemName: "arrow.up.forward.square")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(L10n.openInWebUI(server.displayName))
             }
             HStack(spacing: 8) {
                 progressBar(torrent.progress, color: Self.color(for: torrent.state))
@@ -542,6 +555,14 @@ struct PanelView: View {
             expandedTorrentID = expanded ? nil : torrent.id
             onContentHeightChange()
         }
+    }
+
+    /// Opens the server's web UI in the default browser. No RPC, no session
+    /// cookie, no Keychain read — the browser brings its own session. An
+    /// unusable host silently does nothing (the row itself still works).
+    private func openWebUI(_ server: ServerConfig) {
+        guard let url = try? server.webUIURL() else { return }
+        NSWorkspace.shared.open(url)
     }
 
     /// The expanded detail block (R8): an inset sub-panel of label-over-value

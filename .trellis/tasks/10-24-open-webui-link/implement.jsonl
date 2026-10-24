@@ -1,0 +1,3 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/macos/app-conventions.md", "reason": "panel/row UI rules: 3-layer row anatomy, 380pt width, read-only contract carve-out, L10n patterns, selftest requirements"}
+{"file": ".trellis/spec/macos/build-and-run.md", "reason": "build + selftest commands, warning-free build gate"}

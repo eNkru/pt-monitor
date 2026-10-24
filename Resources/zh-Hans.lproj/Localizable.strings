@@ -30,6 +30,7 @@
 "Connecting…" = "连接中…";
 "Disabled" = "已停用";
 "%lld more torrents" = "还有 %lld 个种子";
+"Open %@ web UI" = "打开 %@ 的网页界面";
 
 /* 失败原因标题（技术细节保持英文） */
 "Unreachable" = "无法连接";
